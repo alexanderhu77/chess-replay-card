@@ -1,0 +1,14 @@
+{
+  "name": "chess-replay-card",
+  "version": "1.0.0",
+  "description": "Replay your latest Lichess or Chess.com game as an animated pixel-art board on your GitHub profile",
+  "main": "src/render.js",
+  "bin": { "chess-replay-card": "cli.js" },
+  "scripts": {
+    "demo": "node cli.js --demo --out examples",
+    "test": "node --test"
+  },
+  "keywords": ["chess", "lichess", "chess.com", "github-action", "profile-readme", "svg", "animation", "pixel-art"],
+  "engines": { "node": ">=18" },
+  "license": "MIT"
+}

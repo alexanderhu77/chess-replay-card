@@ -1,0 +1,33 @@
+name: 'Chess Replay Card'
+description: 'Replay your latest Lichess or Chess.com game as an animated pixel-art board on your GitHub profile'
+author: 'surya6032'
+branding:
+  icon: 'play-circle'
+  color: 'green'
+inputs:
+  username:
+    description: 'Your Lichess or Chess.com username'
+    required: true
+  platform:
+    description: 'lichess or chesscom'
+    required: false
+    default: 'lichess'
+  game_id:
+    description: 'Optional: a specific Lichess game id to show instead of your latest game'
+    required: false
+    default: ''
+  output_dir:
+    description: 'Directory to write the SVGs into'
+    required: false
+    default: 'dist'
+  speed:
+    description: 'Animation speed multiplier (0.25 to 4)'
+    required: false
+    default: '1'
+  max_moves:
+    description: 'Only replay the last N moves of long games'
+    required: false
+    default: '60'
+runs:
+  using: 'node24'
+  main: 'src/action.js'
