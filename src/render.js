@@ -16,7 +16,21 @@ const KING_SCALE = 0.85;               // the king beside each name, relative to
 const POCKET_SCALE = 0.75;             // crazyhouse pocket pieces, relative to a board piece
 const POCKET_SLOT = 32;                // horizontal spacing of pocket pieces
 const COUNT_SIZE = 10;                 // the number beside a pocket piece held more than once
+const CLOCK_SIZE = 11;                 // each player's remaining time, beside their name
 const DROP_BUMP = 1.22;                // how oversized a dropped piece is at the moment it lands
+// How long the replay spends on each move. The three averages decide how long the whole replay
+// lasts. When the game's clocks are known, each move is placed between the shortest and longest
+// time along an S-shaped curve of how long it really took, so that the moves still add up to
+// that total; otherwise each move simply gets its average.
+const MOVE_SECONDS = 0.9;                  // average time for a move that captures, drops, checks or promotes
+const MOVE_SECONDS_DEVIATION = 0.06;       // standard deviation of the random variation added to those moves
+const LONGEST_MOVE_SECONDS = 1.4;          // the most time one of those moves can get
+const QUIET_MOVE_SECONDS = 0.5;            // average time for any other move, a quiet one
+const QUIET_MOVE_SECONDS_DEVIATION = 0.03; // standard deviation of the random variation added to quiet moves
+const LONGEST_QUIET_MOVE_SECONDS = 0.7;    // the most time a quiet move can get
+const CLOSING_MOVE_SECONDS = 1.1;          // average time for each of the last two moves, varied and capped like the first kind
+const SHORTEST_MOVE_SECONDS = 0.38;        // no move of any kind gets less time than this (a piece needs about this long to finish sliding)
+const THINKING_TIME_CONTRAST = 1.5;        // how sharply the curve tells quick moves from slow ones: lower spreads the times more evenly
 const INTRO = { rollFrom: 0.2, rollTo: 1.2, rodsGone: 1.45, vsOut: 2.05, doorsFrom: 2.2, doorsTo: 2.85, rain: 2.85, gameStarts: 3.65 };
 
 const PALETTES = {
@@ -35,6 +49,72 @@ const PALETTES = {
 };
 
 const num = (n) => Number(n.toFixed(3)).toString();
+
+/**
+ * Random numbers from a normal distribution (mean 0, standard deviation 1). They are seeded
+ * by a text, so the same game always gets the same sequence and its card never changes.
+ */
+function normalSampler(seed) {
+  let state = 2166136261;
+  for (const ch of seed) state = Math.imul(state ^ ch.charCodeAt(0), 16777619);
+  const uniform = () => {
+    state = (state + 0x6d2b79f5) | 0;
+    let t = Math.imul(state ^ (state >>> 15), state | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+  return () => Math.sqrt(-2 * Math.log(1 - uniform())) * Math.cos(2 * Math.PI * uniform());
+}
+
+/** How long each move really took, in seconds, from the clock readings taken after every move. */
+function thinkingSeconds(clocks) {
+  return clocks.afterMove.map((left, i) => {
+    const before = i >= 2 ? clocks.afterMove[i - 2] + clocks.increment : clocks.start;
+    return Math.max(0, before - left) / 100;
+  });
+}
+
+/**
+ * Stretches or shrinks `shares` by one common factor so that, with each kept between its own
+ * shortest and longest value, they add up to `total`.
+ */
+function shareOut(shares, shortest, longest, total) {
+  const fit = (factor) => shares.map((share, i) => Math.min(longest[i], Math.max(shortest[i], share * factor)));
+  const sum = (list) => list.reduce((a, b) => a + b, 0);
+  let [low, high] = [0, 1];
+  while (sum(fit(high)) < total && high < 1e6) high *= 2;
+  for (let n = 0; n < 50; n++) {
+    const middle = (low + high) / 2;
+    if (sum(fit(middle)) < total) low = middle;
+    else high = middle;
+  }
+  return fit(high);
+}
+
+/**
+ * Gives each move a time between its shortest and longest along an S-shaped curve of how long
+ * it really took, measured on a logarithmic scale. The middle of the curve is placed so that
+ * the times add up to `total`: quick moves land near the shortest, long thinks near the
+ * longest, and few sit right on either.
+ */
+function spreadAlongCurve(thought, shortest, longest, total) {
+  const effort = thought.map((seconds) => Math.log(seconds + 1));
+  const along = (middle) => effort.map((x, i) => shortest[i] + (longest[i] - shortest[i]) / (1 + Math.exp(-THINKING_TIME_CONTRAST * (x - middle))));
+  const sum = (list) => list.reduce((a, b) => a + b, 0);
+  let [low, high] = [-20, 20];
+  for (let n = 0; n < 60; n++) {
+    const middle = (low + high) / 2;
+    if (sum(along(middle)) > total) low = middle;
+    else high = middle;
+  }
+  return along(high);
+}
+
+const clockText = (centiseconds) => {
+  const sec = Math.max(0, Math.round(centiseconds / 100));
+  const [h, m, s] = [Math.floor(sec / 3600), Math.floor(sec / 60) % 60, String(sec % 60).padStart(2, '0')];
+  return h ? `${h}:${String(m).padStart(2, '0')}:${s}` : `${m}:${s}`;
+};
 const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 const trunc = (s, n) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
 
@@ -84,15 +164,42 @@ function render(game, options = {}) {
   ];
 
   // Timeline (seconds)
-  const STEP = 0.9 / speed;
-  const MOVE = Math.min(0.35, STEP * 0.6);
+  const MOVE = Math.min(0.35, (QUIET_MOVE_SECONDS / speed) * 0.6);
+  const quiet = (ply) => ply.captured === null && !ply.drop && !ply.check && !ply.promotion;
+  const kinds = shown.map((ply, i) => {
+    const closing = startPly + i >= plies.length - 2;
+    const calm = quiet(ply) && !closing;
+    return {
+      average: closing ? CLOSING_MOVE_SECONDS : calm ? QUIET_MOVE_SECONDS : MOVE_SECONDS,
+      deviation: calm ? QUIET_MOVE_SECONDS_DEVIATION : MOVE_SECONDS_DEVIATION,
+      longest: calm ? LONGEST_QUIET_MOVE_SECONDS : LONGEST_MOVE_SECONDS,
+    };
+  });
+  // Every move but the last decides how long the replay is, and that length is fixed by the
+  // averages. Each move is placed along the curve by the time it really took, then varies a
+  // little at random, and the total is restored exactly.
+  const hasClocks = Boolean(game.clocks) && game.clocks.afterMove.length >= plies.length;
+  const vary = normalSampler(game.moves.join(' '));
+  const timed = kinds.slice(0, -1);
+  const budget = timed.reduce((sum, kind) => sum + kind.average, 0);
+  const limits = [timed.map(() => SHORTEST_MOVE_SECONDS), timed.map((kind) => kind.longest)];
+  const thought = hasClocks ? thinkingSeconds(game.clocks).slice(startPly, startPly + timed.length) : [];
+  const shared = thought.some((seconds) => seconds > 0) ? spreadAlongCurve(thought, ...limits, budget) : timed.map((kind) => kind.average);
+  const paces = shareOut(shared.map((seconds, i) => Math.max(0.01, seconds + vary() * timed[i].deviation)), ...limits, budget);
+  if (kinds.length) {
+    const last = kinds[kinds.length - 1];
+    paces.push(Math.min(last.longest, Math.max(SHORTEST_MOVE_SECONDS, last.average + vary() * last.deviation)));
+  }
+  const steps = paces.map((seconds) => Math.max(MOVE * 1.25, seconds / speed));
   // A captured crazyhouse piece flies to the capturer's pocket. It leaves its square halfway
   // through the capturing move and takes a quick flight, arriving just as the capturer lands.
   const FLY_WAIT = MOVE * 0.5;
   const FLY = MOVE * 0.55;
   const START = 1.0;
   const END_HOLD = 3.2;
-  const tPly = (i) => START + i * STEP;
+  const times = [];
+  steps.reduce((t, step) => { times.push(t); return t + step; }, START);
+  const tPly = (i) => times[i];
   const lastT = shown.length ? tPly(shown.length - 1) + MOVE : START;
   const holdEnd = lastT + END_HOLD;
   const FADE = 0.75;
@@ -121,7 +228,7 @@ function render(game, options = {}) {
         // The pocket tells us what it becomes there (a promoted piece turns back into a pawn).
         const [before, now] = [ply.before.pockets[ply.color], ply.after.pockets[ply.color]];
         const as = [...POCKET_TYPES].find((type) => now[type] > before[type]);
-        flights.push({ t: t + FLY_WAIT, sq: victim.last, sprite: victim.type + victim.color, side: ply.color, as });
+        flights.push({ t: t + FLY_WAIT, nextMove: t + steps[i], sq: victim.last, sprite: victim.type + victim.color, side: ply.color, as });
         victim.vanish = t + FLY_WAIT;
         victim.snap = true;
       } else {
@@ -208,7 +315,7 @@ function render(game, options = {}) {
     if (flights.length) {
       // When a captured piece arrives in a pocket, its slot lights up until the next move starts.
       let hp = `0%{opacity:0}`;
-      for (const f of flights) hp += `${pct(f.t + FLY)}%{opacity:.5;transform:${onPocket(f.side, f.as)}}${pct(f.t - FLY_WAIT + STEP)}%{opacity:0}`;
+      for (const f of flights) hp += `${pct(f.t + FLY)}%{opacity:.5;transform:${onPocket(f.side, f.as)}}${pct(f.nextMove)}%{opacity:0}`;
       css.push(`@keyframes hp{${hp}${pct(holdEnd)}%,100%{opacity:0}}.hp{${loop('hp', 'steps(1,end)')}}`);
       body.push(`<rect class="hp" width="${S}" height="${S}" fill="${pal.gain}" opacity="0"/>`);
     }
@@ -373,11 +480,39 @@ function render(game, options = {}) {
     const isMe = me && p.name.toLowerCase() === me;
     // A name is cut to what fits between the king and the score (monospace letters are 0.6em wide).
     const nameX = PX0 + 11 * PX * KING_SCALE + 7.5;
-    const maxName = Math.floor((PX0 + PANEL_W - nameX - (0.6 * SCORE_SIZE + 8)) / (0.6 * NAME_SIZE));
+    // The player's clock: one line per move they made, on a strip behind a one-line window,
+    // stepped along by a single animation. A player who ran out of time ends on 0:00.
+    let clock = '';
+    let clockWidth = 0;
+    if (hasClocks && shown.length) {
+      const mine = shown.map((ply, i) => i).filter((i) => shown[i].color === side);
+      const earlier = startPly + (mine.length ? mine[0] : 0) - 2;
+      const values = [earlier >= 0 ? game.clocks.afterMove[earlier] : game.clocks.start, ...mine.map((i) => game.clocks.afterMove[startPly + i])];
+      const when = mine.map((i) => tPly(i));
+      if (game.termination === 'outoftime' && shown[shown.length - 1].color !== side) {
+        values.push(0);
+        when.push(lastT + 0.3);
+      }
+      const texts = values.map(clockText);
+      clockWidth = Math.max(...texts.map((t) => t.length)) * 0.6 * CLOCK_SIZE + 6;
+      const right = PX0 + PANEL_W - (0.6 * SCORE_SIZE + 10);
+      const LINE = 20;
+      let frames = `0%{transform:translate(0px,0px)}`;
+      when.forEach((t, n) => { frames += `${pct(t)}%{transform:translate(0px,${-(n + 1) * LINE}px)}`; });
+      frames += `${pct(holdEnd + FADE + 0.05)}%,100%{transform:translate(0px,0px)}`;
+      css.push(`@keyframes cl${side}{${frames}}.cl${side}{${loop(`cl${side}`, 'steps(1,end)')}}`);
+      clock =
+        `<clipPath id="cc${side}"><rect x="${num(right - clockWidth)}" y="${y - 11}" width="${num(clockWidth + 2)}" height="15"/></clipPath>` +
+        `<g clip-path="url(#cc${side})"><g class="cl${side}" transform="translate(0 ${-(texts.length - 1) * LINE})">` +
+        texts.map((t, n) => `<text x="${num(right)}" y="${y + n * LINE}" text-anchor="end" font-size="${CLOCK_SIZE}" class="m">${t}</text>`).join('') +
+        `</g></g>`;
+    }
+    const maxName = Math.floor((PX0 + PANEL_W - nameX - (0.6 * SCORE_SIZE + 8) - clockWidth) / (0.6 * NAME_SIZE));
     result.push(`<text x="${PX0 + PANEL_W}" y="${y}" text-anchor="end" font-size="${SCORE_SIZE}" font-weight="700" class="a">${score(side)}</text>`);
     return (
       `<use href="#k${side}" transform="translate(${PX0} ${num(y + 1 - 12 * PX * KING_SCALE)}) scale(${KING_SCALE})"/>` +
-      `<text x="${num(nameX)}" y="${y}" font-size="${NAME_SIZE}"${isMe ? ` font-weight="700"` : ''}>${esc(trunc(p.name, maxName))}</text>`
+      `<text x="${num(nameX)}" y="${y}" font-size="${NAME_SIZE}"${isMe ? ` font-weight="700"` : ''}>${esc(trunc(p.name, maxName))}</text>` +
+      clock
     );
   };
   body.push(playerRow(topSide, topNameY));
@@ -434,7 +569,7 @@ function render(game, options = {}) {
       const label = ply.color === 'w' ? `${ply.moveNumber}. ${san}` : `${ply.moveNumber}… ${san}`;
       return `<text x="${PX0}" y="${moveY + (i + 1) * LINE}" font-size="22" font-weight="700">${esc(label)}</text>`;
     });
-    mv += `${pct(tPly(shown.length - 1) + STEP + END_HOLD)}%,100%{transform:${scroll(0)}}`;
+    mv += `${pct(tPly(shown.length - 1) + steps[shown.length - 1] + END_HOLD)}%,100%{transform:${scroll(0)}}`;
     css.push(`@keyframes mv{${mv}}.mv{${loop('mv', 'steps(1,end)')}}`);
     body.push(
       `<clipPath id="mw"><rect x="${PX0 - 2}" y="${moveY - 24}" width="${PANEL_W + 4}" height="32"/></clipPath>` +
@@ -442,7 +577,7 @@ function render(game, options = {}) {
     );
   }
 
-  body.push(`<text x="${PX0}" y="${moveY + 21}" font-size="9" class="m">${esc(game.source || '')}</text>`);
+  body.push(`<text x="${PX0}" y="${moveY + 21}" font-size="9" class="m">${esc([game.source, game.clock].filter(Boolean).join(' · '))}</text>`);
   result.push(`<text x="${PX0}" y="${moveY + 39}" font-size="11" class="a">${esc(game.ending || '')}</text>`);
 
   // The result appears as the end banner does. Its animation plays once and then holds, so on

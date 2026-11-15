@@ -3,6 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const { render } = require('../src/render');
+const { replay } = require('../src/chess');
 const { demoGame } = require('../src/demo');
 const { parsePgn } = require('../src/pgn');
 const { firstGame, gameLink, normalizeLichess, openingFromEcoUrl, wantedVariants } = require('../src/sources');
@@ -62,7 +63,7 @@ test('renders a Lichess crazyhouse game with drops and pockets', () => {
   });
   assert.strictEqual(game.variant, 'crazyhouse');
   const svg = render(game, { perspective: 'alice' });
-  assert.doesNotMatch(svg, /Blitz|Crazyhouse|moves</, 'the panel shows no time control, variant or move count');
+  assert.doesNotMatch(svg, /Blitz|Crazyhouse|moves</, 'the panel shows no speed name, variant or move count');
   assert.match(svg, />8\. @f7</);
   assert.doesNotMatch(svg, /P@/);
   assert.match(svg, /@keyframes zwp1/, 'the white pawn pocket is animated');
@@ -227,4 +228,56 @@ test('a dropped piece is hidden before it returns to the pocket for the next rep
   const svg = render(game, { perspective: 'alice' });
   const dropped = svg.match(/@keyframes p\d+\{0%\{transform:translate\(280\.25px,207px\) scale\(0\.75\);opacity:0\}.*?\}\}/)[0];
   assert.match(dropped, /%\{opacity:1\}[\d.]+%\{transform:translate\(160px,32px\) scale\(1\);opacity:0\}100%\{transform:translate\(280\.25px,207px\) scale\(0\.75\);opacity:0\}\}$/);
+});
+
+const moveTimes = (svg) => {
+  const length = Number(svg.match(/animation:hf ([\d.]+)s/)[1]);
+  const starts = [...svg.match(/@keyframes hf\{(.*?)\}@keyframes ht/)[1].matchAll(/([\d.]+)%\{opacity:\.5/g)].map((m) => (Number(m[1]) / 100) * length);
+  return starts.slice(1).map((t, i) => t - starts[i]);
+};
+const total = (list) => list.reduce((sum, seconds) => sum + seconds, 0);
+const isQuiet = (ply) => ply.captured === null && !ply.drop && !ply.check && !ply.promotion;
+
+test('without clocks each move gets about its average time, and the replay length is fixed', () => {
+  const game = demoGame();
+  const svg = render(game);
+  assert.strictEqual(render(game), svg);
+  const times = moveTimes(svg);
+  const { plies } = replay(game.moves);
+  const averages = times.map((seconds, i) => (i >= plies.length - 2 ? 1.1 : isQuiet(plies[i]) ? 0.5 : 0.9));
+  times.forEach((seconds, i) => assert.ok(Math.abs(seconds - averages[i]) <= 0.25, `move ${i} took ${seconds.toFixed(3)}s, expected about ${averages[i]}s`));
+  assert.ok(Math.abs(total(times) - total(averages)) < 0.02, 'the times add up to exactly what the averages do');
+  assert.ok(new Set(times.map((seconds) => seconds.toFixed(2))).size >= 6, 'they still vary a little');
+});
+
+test('with clocks a move gets more time the longer it really took, and the replay length is the same', () => {
+  const lichess = (clocks) => normalizeLichess({
+    id: 'pace1234', variant: 'standard', speed: 'blitz', status: 'resign', winner: 'white',
+    clock: { initial: 180, increment: 0 }, clocks,
+    players: { white: { user: { name: 'alice' } }, black: { user: { name: 'bob' } } }, moves: 'e4 e5 Nf3 Nc6 Bc4 Bc5 c3 Nf6 d3 d6',
+  });
+  const timed = moveTimes(render(lichess([18000, 18000, 17900, 17900, 15900, 17800, 15800, 16800, 15700, 16700])));
+  const plain = moveTimes(render(lichess(undefined)));
+  assert.ok(Math.abs(total(timed) - 5.1) < 0.02 && Math.abs(total(plain) - 5.1) < 0.02, 'both replays last as long as the averages add up to');
+  const average = (moves) => total(moves.map((i) => timed[i])) / moves.length;
+  const [instant, quick, slow] = [average([0, 1]), average([2, 3, 5, 6]), average([4, 7])];
+  assert.ok(instant + 0.04 < quick && quick + 0.08 < slow, `instant ${instant.toFixed(3)}s < one-second ${quick.toFixed(3)}s < long thinks ${slow.toFixed(3)}s`);
+  timed.slice(0, 8).forEach((seconds, i) => assert.ok(seconds > 0.385 && seconds < 0.695, `quiet move ${i} sits inside its caps, not on them (${seconds.toFixed(3)}s)`));
+});
+
+test('clocks sit beside the names and the time control beside the site', () => {
+  const game = normalizeLichess({
+    id: 'clk12345', variant: 'standard', speed: 'blitz', status: 'outoftime', winner: 'black',
+    clock: { initial: 180, increment: 2 }, clocks: [18000, 18000, 17650, 17820],
+    players: { white: { user: { name: 'alice' } }, black: { user: { name: 'bob' } } }, moves: 'e4 e5 Nf3 Nc6',
+  });
+  assert.deepStrictEqual(game.clocks, { start: 18000, increment: 200, afterMove: [18000, 18000, 17650, 17820] });
+  const svg = render(game, { perspective: 'alice' });
+  assert.match(svg, />lichess\.org · 3\+2</);
+  const shown = (side) => [...svg.match(new RegExp(`<g class="cl${side}"[^>]*>(.*?)</g>`))[1].matchAll(/>([\d:]+)</g)].map((m) => m[1]);
+  assert.deepStrictEqual(shown('w'), ['3:00', '3:00', '2:57', '0:00']);
+  assert.deepStrictEqual(shown('b'), ['3:00', '3:00', '2:58']);
+  assert.match(svg, /<g class="clw" transform="translate\(0 -60\)">/);
+  assert.doesNotMatch(render(demoGame()), /class="cl[wb]"/);
+  assert.match(render(demoGame()), />Paris, 1858</);
 });

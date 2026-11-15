@@ -61,6 +61,7 @@ function normalizeLichess(g, url) {
     opening: g.opening ? g.opening.name : null,
     timeClass: cap(g.speed),
     clock,
+    clocks: Array.isArray(g.clocks) && g.clock ? { start: g.clock.initial * 100, increment: g.clock.increment * 100, afterMove: g.clocks } : null,
     date: g.createdAt ? new Date(g.createdAt) : null,
     moves: (g.moves || '').split(/\s+/).filter(Boolean),
   };
@@ -97,7 +98,7 @@ async function firstGame(res, accept) {
 async function fetchLichess(username, gameId, variant) {
   const wanted = wantedVariants(variant);
   if (gameId) {
-    const res = await getJson(`https://lichess.org/game/export/${encodeURIComponent(gameId)}?opening=true&clocks=false&evals=false`, { Accept: 'application/json' });
+    const res = await getJson(`https://lichess.org/game/export/${encodeURIComponent(gameId)}?opening=true&clocks=true&evals=false`, { Accept: 'application/json' });
     const game = normalizeLichess(await res.json());
     if (!LICHESS_VARIANTS.includes(game.variant)) {
       throw new Error(`Lichess game "${gameId}" is a ${game.variant} game. Only standard and crazyhouse games are supported.`);
@@ -105,7 +106,7 @@ async function fetchLichess(username, gameId, variant) {
     return game;
   }
   const perf = wanted.length === 1 ? `&perfType=${LICHESS_PERF_TYPES[wanted[0]]}` : '';
-  const url = `https://lichess.org/api/games/user/${encodeURIComponent(username)}?max=10&opening=true&clocks=false&evals=false&moves=true${perf}`;
+  const url = `https://lichess.org/api/games/user/${encodeURIComponent(username)}?max=10&opening=true&clocks=true&evals=false&moves=true${perf}`;
   const res = await getJson(url, { Accept: 'application/x-ndjson' });
   const game = await firstGame(res, (g) => wanted.includes(g.variant) && g.moves && !g.initialFen);
   if (!game) throw new Error(`No recent ${wanted.join(' or ')} games found for Lichess user "${username}".`);
