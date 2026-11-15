@@ -31,7 +31,10 @@ const LONGEST_QUIET_MOVE_SECONDS = 0.7;    // the most time a quiet move can get
 const CLOSING_MOVE_SECONDS = 1.1;          // average time for each of the last two moves, varied and capped like the first kind
 const SHORTEST_MOVE_SECONDS = 0.38;        // no move of any kind gets less time than this (a piece needs about this long to finish sliding)
 const THINKING_TIME_CONTRAST = 1.5;        // how sharply the curve tells quick moves from slow ones: lower spreads the times more evenly
-const INTRO = { rollFrom: 0.2, rollTo: 1.2, rodsGone: 1.45, vsOut: 2.05, doorsFrom: 2.2, doorsTo: 2.85, rain: 2.85, gameStarts: 3.65 };
+const INTRO_SPEED = 1.3;               // how many times faster than its original pace the opening sequence plays
+const INTRO_PACE = { rollFrom: 0.2, rollTo: 1.2, rodsGone: 1.45, vsOut: 2.05, doorsFrom: 2.2, doorsTo: 2.85, rain: 2.85, gameStarts: 3.65 };
+const INTRO = Object.fromEntries(Object.entries(INTRO_PACE).map(([step, seconds]) => [step, Number((seconds / INTRO_SPEED).toFixed(3))]));
+INTRO.gameStarts = Number(((INTRO_PACE.gameStarts + 1) / INTRO_SPEED - 1).toFixed(3));   // the first move comes a second after the game starts
 
 const PALETTES = {
   light: {
@@ -298,11 +301,14 @@ function render(game, options = {}) {
   // Where a move came from: the square it left or, for a crazyhouse drop, the pocket slot.
   const cameFrom = (ply) => (ply.drop ? onPocket(ply.color, ply.drop.type) : onSquare(ply.from));
   // In crazyhouse the highlight is also coloured: green for an ordinary move, blue for a drop.
-  const tint = startPos.pockets ? (ply) => `;fill:${ply.drop ? pal.drop : pal.move}` : () => '';
+  const tint = (ply) => (startPos.pockets && ply.drop ? pal.drop : pal.move);
+  // These keyframes step from one to the next, so a value only needs writing when it changes.
   const hlFrames = (where) => {
     let k = `0%{opacity:0;transform:translate(0px,0px)}`;
+    let colour = pal.move;
     shown.forEach((ply, i) => {
-      k += `${pct(tPly(i))}%{opacity:.5;transform:${where(ply)}${tint(ply)}}`;
+      k += `${pct(tPly(i))}%{${i === 0 ? 'opacity:.5;' : ''}transform:${where(ply)}${tint(ply) === colour ? '' : `;fill:${tint(ply)}`}}`;
+      colour = tint(ply);
     });
     k += `${pct(holdEnd)}%,100%{opacity:0}`;
     return k;
@@ -321,15 +327,16 @@ function render(game, options = {}) {
     }
 
     let ck = `0%{opacity:0}`;
+    let lit = false;
     shown.forEach((ply, i) => {
       // A king stepping out of check leaves the red square behind, so clear it as the king
       // sets off: the square it came from then shows the green last-move highlight.
       const kingEscapes = i > 0 && shown[i - 1].check && ply.from >= 0 && ply.before.board[ply.from].type === 'k';
-      if (kingEscapes) ck += `${pct(tPly(i))}%{opacity:0}`;
+      if (kingEscapes && lit) ck += `${pct(tPly(i))}%{opacity:0}`;
       const t = pct(tPly(i) + MOVE);
-      ck += ply.check
-        ? `${t}%{opacity:.6;transform:translate(${sqX(ply.checkedKing)}px,${sqY(ply.checkedKing)}px)}`
-        : `${t}%{opacity:0}`;
+      if (ply.check) ck += `${t}%{opacity:.6;transform:translate(${sqX(ply.checkedKing)}px,${sqY(ply.checkedKing)}px)}`;
+      else if (lit && !kingEscapes) ck += `${t}%{opacity:0}`;
+      lit = ply.check;
     });
     ck += `${pct(holdEnd)}%,100%{opacity:0}`;
     css.push(`@keyframes ck{${ck}}.ck{${loop('ck', 'steps(1,end)')}}`);
@@ -352,7 +359,7 @@ function render(game, options = {}) {
     // In crazyhouse a promoted piece turns back into a pawn when captured, so it carries a
     // small pawn in the corner of its square.
     const badge = startPos.pockets && tr.promoted ? `<use href="#p${tr.color}" transform="translate(${S - 10} 0) scale(.45)"/>` : '';
-    const rainDelay = INTRO.rain + (7 - sqY(tr.sq0) / S) * 0.09 + (sqX(tr.sq0) / S) * 0.03;
+    const rainDelay = INTRO.rain + ((7 - sqY(tr.sq0) / S) * 0.09 + (sqX(tr.sq0) / S) * 0.03) / INTRO_SPEED;
     const rain = tr.appear === null ? ` class="rn" style="animation-delay:${num(rainDelay)}s"` : '';
     const piece =
       `transform="translate(${sqX(tr.last)} ${sqY(tr.last)})"${tr.vanish === null ? '' : ' opacity="0"'}>` +
@@ -415,7 +422,9 @@ function render(game, options = {}) {
   // pocket, shrinking and changing sides on the way. Drawn after the pieces, so it passes over them.
   // Flights never overlap, so every capture of one kind (say, a black knight) re-uses a single
   // flyer instead of getting its own: far fewer animations for the browser to keep running.
-  const HOLD = ';animation-timing-function:step-end';   // stay as is until the next keyframe, then jump
+  // A flyer holds each keyframe until the next, except where a keyframe asks for a smooth change.
+  const EASED = ';animation-timing-function:ease-in-out';
+  const EVEN = ';animation-timing-function:linear';
   const flyers = new Map();
   for (const f of flights) {
     const kind = f.sprite + f.as;
@@ -424,20 +433,20 @@ function render(game, options = {}) {
   }
   [...flyers.values()].forEach((kind, n) => {
     let to = `${pos(kind[0].sq)} scale(1)`;
-    let fly = `0%{transform:${to};opacity:0${HOLD}}`;
-    let oldSprite = `0%{opacity:1${HOLD}}`;   // the captured piece, fading out over the second half
-    let newSprite = `0%{opacity:0${HOLD}}`;   // what it becomes in the pocket, fading in over the first half
+    let fly = `0%{transform:${to};opacity:0}`;
+    let oldSprite = `0%{opacity:1}`;   // the captured piece, fading out over the second half
+    let newSprite = `0%{opacity:0}`;   // what it becomes in the pocket, fading in over the first half
     for (const f of kind) {
       const [start, half, end, gone] = [pct(f.t), pct(f.t + FLY / 2), pct(f.t + FLY), pct(f.t + FLY + 0.01)];
       to = pocketPos(f.side, f.as);
-      fly += `${start}%{transform:${pos(f.sq)} scale(1);opacity:1}${end}%{transform:${to};opacity:1${HOLD}}${gone}%{transform:${to};opacity:0${HOLD}}`;
-      newSprite += `${start}%{opacity:0}${half}%{opacity:1${HOLD}}${gone}%{opacity:0${HOLD}}`;
-      oldSprite += `${half}%{opacity:1}${end}%{opacity:0${HOLD}}${gone}%{opacity:1${HOLD}}`;
+      fly += `${start}%{transform:${pos(f.sq)} scale(1);opacity:1${EASED}}${end}%{transform:${to};opacity:1}${gone}%{opacity:0}`;
+      newSprite += `${start}%{opacity:0${EVEN}}${half}%{opacity:1}${gone}%{opacity:0}`;
+      oldSprite += `${half}%{opacity:1${EVEN}}${end}%{opacity:0}${gone}%{opacity:1}`;
     }
     css.push(
-      `@keyframes fl${n}{${fly}100%{transform:${to};opacity:0}}.fl${n}{${loop(`fl${n}`, 'ease-in-out')}}` +
-        `@keyframes fo${n}{${oldSprite}100%{opacity:1}}.fo${n}{${loop(`fo${n}`, 'linear')}}` +
-        `@keyframes fi${n}{${newSprite}100%{opacity:0}}.fi${n}{${loop(`fi${n}`, 'linear')}}`
+      `@keyframes fl${n}{${fly}100%{transform:${to};opacity:0}}.fl${n}{${loop(`fl${n}`, 'steps(1,end)')}}` +
+        `@keyframes fo${n}{${oldSprite}100%{opacity:1}}.fo${n}{${loop(`fo${n}`, 'steps(1,end)')}}` +
+        `@keyframes fi${n}{${newSprite}100%{opacity:0}}.fi${n}{${loop(`fi${n}`, 'steps(1,end)')}}`
     );
     const { sprite, as, side } = kind[0];
     const use = (cls, id) => `<use class="${cls}" href="#${id}" x="${SPRITE_DX}" y="${SPRITE_DY}"/>`;
@@ -504,7 +513,7 @@ function render(game, options = {}) {
       clock =
         `<clipPath id="cc${side}"><rect x="${num(right - clockWidth)}" y="${y - 11}" width="${num(clockWidth + 2)}" height="15"/></clipPath>` +
         `<g clip-path="url(#cc${side})"><g class="cl${side}" transform="translate(0 ${-(texts.length - 1) * LINE})">` +
-        texts.map((t, n) => `<text x="${num(right)}" y="${y + n * LINE}" text-anchor="end" font-size="${CLOCK_SIZE}" class="m">${t}</text>`).join('') +
+        `<text text-anchor="end" font-size="${CLOCK_SIZE}" class="m">${texts.map((t, n) => `<tspan x="${num(right)}" y="${y + n * LINE}">${t}</tspan>`).join('')}</text>` +
         `</g></g>`;
     }
     const maxName = Math.floor((PX0 + PANEL_W - nameX - (0.6 * SCORE_SIZE + 8) - clockWidth) / (0.6 * NAME_SIZE));
@@ -567,13 +576,13 @@ function render(game, options = {}) {
       mv += `${pct(tPly(i))}%{transform:${scroll(i + 1)}}`;
       const san = ply.san.replace(/^P@/, '@');
       const label = ply.color === 'w' ? `${ply.moveNumber}. ${san}` : `${ply.moveNumber}… ${san}`;
-      return `<text x="${PX0}" y="${moveY + (i + 1) * LINE}" font-size="22" font-weight="700">${esc(label)}</text>`;
+      return `<tspan x="${PX0}" y="${moveY + (i + 1) * LINE}">${esc(label)}</tspan>`;
     });
     mv += `${pct(tPly(shown.length - 1) + steps[shown.length - 1] + END_HOLD)}%,100%{transform:${scroll(0)}}`;
     css.push(`@keyframes mv{${mv}}.mv{${loop('mv', 'steps(1,end)')}}`);
     body.push(
       `<clipPath id="mw"><rect x="${PX0 - 2}" y="${moveY - 24}" width="${PANEL_W + 4}" height="32"/></clipPath>` +
-        `<g clip-path="url(#mw)"><g class="mv" transform="translate(0 ${-shown.length * LINE})">${lines.join('')}</g></g>`
+        `<g clip-path="url(#mw)"><g class="mv" transform="translate(0 ${-shown.length * LINE})"><text font-size="22" font-weight="700">${lines.join('')}</text></g></g>`
     );
   }
 
@@ -587,7 +596,7 @@ function render(game, options = {}) {
 
   const B = 8 * S;
   const share = (sec, total) => num((sec / total) * 100);
-  css.push(`@keyframes rn{0%{transform:translateY(${-(B + 40)}px)}72%{transform:translateY(5px)}100%{transform:translateY(0px)}}.rn{animation:rn .42s ease-in backwards}`);
+  css.push(`@keyframes rn{0%{transform:translateY(${-(B + 40)}px)}72%{transform:translateY(5px)}100%{transform:translateY(0px)}}.rn{animation:rn ${num(0.42 / INTRO_SPEED)}s ease-in backwards}`);
 
   let outro = '';
   for (let g = 0; g < 8; g++) {
@@ -619,7 +628,7 @@ function render(game, options = {}) {
     `<rect x="-7" y="-12" width="14" height="8" rx="2" fill="${pal.woodDark}"/><rect x="-7" y="${B + 4}" width="14" height="8" rx="2" fill="${pal.woodDark}"/>` +
     `<rect x="-3" y="-3" width="2" height="${B + 6}" fill="${pal.woodLight}" opacity=".7"/></g>`;
   const [rollFrom, rollTo] = [share(INTRO.rollFrom, INTRO.rodsGone), share(INTRO.rollTo, INTRO.rodsGone)];
-  const doorsLast = INTRO.doorsTo + 0.05;
+  const doorsLast = INTRO.doorsTo + 0.05 / INTRO_SPEED;
   const [doorsFrom, doorsTo] = [share(INTRO.doorsFrom, doorsLast), share(INTRO.doorsTo, doorsLast)];
   css.push(
     `@keyframes sl{0%,${rollFrom}%{transform:translateX(0px);opacity:1}${rollTo}%{transform:translateX(${-open}px);opacity:1}100%{transform:translateX(${-open}px);opacity:0}}` +

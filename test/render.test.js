@@ -70,7 +70,7 @@ test('renders a Lichess crazyhouse game with drops and pockets', () => {
   assert.match(svg, /@keyframes zwp1\{[^@]*%\{opacity:1;animation-timing-function:linear\}[\d.]+%\{opacity:0\}\}\.zwp1\{/);
   assert.doesNotMatch(svg.match(/@keyframes zwp2\{[^@]*/)[0], /linear/);
   // 5. exd5: the black pawn flies from d5 to white's pawn pocket, turning white on the way.
-  assert.match(svg, /@keyframes fl0\{0%\{transform:translate\(96px,96px\) scale\(1\);opacity:0;/);
+  assert.match(svg, /@keyframes fl0\{0%\{transform:translate\(96px,96px\) scale\(1\);opacity:0\}/);
   assert.match(svg, /<g class="fl0" opacity="0"><use class="fo0" href="#pb"[^>]*\/><use class="fi0" href="#pw"[^>]*\/><\/g>/);
   // 6. Nxf7 takes another black pawn, which re-uses the same flyer from f7.
   assert.match(svg.match(/@keyframes fl0\{.*?\}\.fl0/)[0], /translate\(160px,32px\) scale\(1\);opacity:1/);
@@ -88,7 +88,7 @@ test('renders a Lichess crazyhouse game with drops and pockets', () => {
   assert.match(from, /translate\(282px,208px\) scale\(0\.641,0\.688\);fill:#218bff\}/);
   assert.match(to, /translate\(160px,32px\);fill:#218bff\}/, 'the square it lands on is blue too');
   assert.strictEqual(from.match(/fill:#218bff/g).length, 1, 'only the drop is blue');
-  assert.strictEqual(from.match(/fill:#2da44e/g).length, 16, 'ordinary moves stay green');
+  assert.strictEqual(from.match(/fill:#2da44e/g).length, 1, 'the highlight turns green again on the next ordinary move');
   // 5. exd5: white's pawn slot lights up purple when the captured pawn arrives.
   assert.match(svg, /<rect class="hp" [^>]*fill="#a475f9"/);
   assert.match(svg.match(/@keyframes hp\{.*?\}\.hp/)[0], /%\{opacity:\.5;transform:translate\(282px,208px\) scale\(0\.641,0\.688\)\}[\d.]+%\{opacity:0\}/);
@@ -108,14 +108,14 @@ test('the check highlight clears as the king starts to move out of check', () =>
   const game = { ...demoGame(), moves: ['e4', 'e5', 'Qh5', 'Nc6', 'Qxf7+', 'Kxf7'], result: '0-1', termination: 'resign' };
   const svg = render(game);
   // The moment the king leaves e8: its square becomes the green "from" highlight.
-  const start = svg.match(/@keyframes hf\{.*?([\d.]+)%\{opacity:\.5;transform:translate\(128px,0px\)\}/)[1];
+  const start = svg.match(/@keyframes hf\{.*?([\d.]+)%\{(?:opacity:\.5;)?transform:translate\(128px,0px\)\}/)[1];
   const check = svg.match(/@keyframes ck\{(.*?)\}\.ck/)[1];
   assert.match(check, /\{opacity:\.6;transform:translate\(128px,0px\)\}/, 'e8 turns red after Qxf7+');
   assert.ok(check.includes(`}${start}%{opacity:0}`), 'the red is gone when the king sets off, not when it lands');
 
   // A check answered without moving the king stays red until the reply lands.
   const blocked = render({ ...game, moves: ['e4', 'd5', 'Bb5+', 'c6'] });
-  const blockStart = blocked.match(/@keyframes hf\{.*?([\d.]+)%\{opacity:\.5;transform:translate\(64px,32px\)\}/)[1];
+  const blockStart = blocked.match(/@keyframes hf\{.*?([\d.]+)%\{(?:opacity:\.5;)?transform:translate\(64px,32px\)\}/)[1];
   assert.ok(!blocked.match(/@keyframes ck\{(.*?)\}\.ck/)[1].includes(`}${blockStart}%{opacity:0}`));
 });
 
@@ -168,7 +168,7 @@ test('the result is hidden until the last move lands, then stays', () => {
   assert.match(hidden, />0<\/text>.*>1<\/text>.*>White won by checkmate<\/text>/);
   assert.strictEqual(svg.split('White won by checkmate').length, 2);
   // That group's animation plays once and holds its last frame, so the result stays on later replays.
-  assert.match(svg, /@keyframes rk\{0%,[\d.]+%\{opacity:0\}[\d.]+%,100%\{opacity:1\}\}\.rs\{animation:rk [\d.]+s linear 3\.65s both\}/);
+  assert.match(svg, /@keyframes rk\{0%,[\d.]+%\{opacity:0\}[\d.]+%,100%\{opacity:1\}\}\.rs\{animation:rk [\d.]+s linear 2\.577s both\}/);
   // The banner over the board names the winner, then how.
   assert.match(svg, />WHITE WINS<\/text><text [^>]*>CHECKMATE<\/text><\/g>/);
 
@@ -197,12 +197,12 @@ test('the card opens with scrolls, a versus card and falling pieces, once', () =
   assert.strictEqual(svg.match(/<g class="r[lr]" opacity="0">/g).length, 2);
   assert.match(svg, /<g class="vt" opacity="0">.*?>Duke Karl \/ Count Iso…<\/text><\/g><g class="vb" opacity="0">.*?>Paul Morphy<\/text><\/g><text class="vv a"[^>]*>VS<\/text>/);
   assert.strictEqual(svg.match(/<use class="rn" style="animation-delay:[\d.]+s"/g).length, 32);
-  assert.match(svg, /<g transform="translate\(0 192\)"><use class="rn" style="animation-delay:2\.94s" href="#pw"/);
-  assert.match(svg, /<g transform="translate\(224 0\)"><use class="rn" style="animation-delay:3\.69s" href="#rb"/);
+  assert.match(svg, /<g transform="translate\(0 192\)"><use class="rn" style="animation-delay:2\.261s" href="#pw"/);
+  assert.match(svg, /<g transform="translate\(224 0\)"><use class="rn" style="animation-delay:2\.838s" href="#rb"/);
   for (const name of ['sl', 'sr', 'rl', 'rr', 'vt', 'vb', 'vv']) assert.match(svg, new RegExp(`\\.${name}\\{animation:${name} [\\d.]+s [a-z-]+ forwards\\}`));
-  assert.match(svg, /\.rn\{animation:rn \.42s ease-in backwards\}/);
+  assert.match(svg, /\.rn\{animation:rn 0\.323s ease-in backwards\}/);
   assert.strictEqual(svg.match(/ infinite backwards\}/g).length, svg.match(/ infinite/g).length);
-  assert.strictEqual(svg.match(/ 3\.65s infinite backwards\}/g).length, svg.match(/ infinite/g).length);
+  assert.strictEqual(svg.match(/ 2\.577s infinite backwards\}/g).length, svg.match(/ infinite/g).length);
 });
 
 test('between replays the board dissolves and returns in a diagonal sweep', () => {
@@ -214,7 +214,7 @@ test('between replays the board dissolves and returns in a diagonal sweep', () =
   const sweep = svg.match(/@keyframes sw\{(.*?)\}\.sw\{/)[1];
   assert.strictEqual(sweep.match(/translateX\(\d+px\)/g).length, 17);
   assert.match(sweep, /translateX\(448px\)\}[\d.]+%\{transform:translateX\(480px\);opacity:0\}[\d.]+%,100%\{transform:translateX\(0px\);opacity:1\}$/);
-  assert.match(svg, /\.sw1\{animation:sw1 4\.65s linear\}/);
+  assert.match(svg, /\.sw1\{animation:sw1 3\.577s linear\}/);
   assert.match(svg, /<g class="sw1" clip-path="url\(#sc\)"><path class="sw" [^>]*opacity="0"\/><\/g>/);
   assert.doesNotMatch(svg, /class="pc"/);
 });
@@ -232,7 +232,7 @@ test('a dropped piece is hidden before it returns to the pocket for the next rep
 
 const moveTimes = (svg) => {
   const length = Number(svg.match(/animation:hf ([\d.]+)s/)[1]);
-  const starts = [...svg.match(/@keyframes hf\{(.*?)\}@keyframes ht/)[1].matchAll(/([\d.]+)%\{opacity:\.5/g)].map((m) => (Number(m[1]) / 100) * length);
+  const starts = [...svg.match(/@keyframes hf\{(.*?)\}@keyframes ht/)[1].matchAll(/([\d.]+)%\{(?:opacity:\.5;)?transform:/g)].map((m) => (Number(m[1]) / 100) * length);
   return starts.slice(1).map((t, i) => t - starts[i]);
 };
 const total = (list) => list.reduce((sum, seconds) => sum + seconds, 0);
