@@ -16,6 +16,7 @@ const KING_SCALE = 0.85;               // the king beside each name, relative to
 const POCKET_SCALE = 0.75;             // crazyhouse pocket pieces, relative to a board piece
 const POCKET_SLOT = 32;                // horizontal spacing of pocket pieces
 const COUNT_SIZE = 10;                 // the number beside a pocket piece held more than once
+const DROP_BUMP = 1.22;                // how oversized a dropped piece is at the moment it lands
 
 const PALETTES = {
   light: {
@@ -130,7 +131,7 @@ function render(game, options = {}) {
     if (ply.promotion) {
       const pr = ply.promotion;
       tracks.get(pr.pawnId).vanish = t + MOVE;
-      tracks.set(pr.id, { type: pr.type, color: pr.color, id: pr.id, sq0: pr.square, moves: [], appear: t + MOVE, vanish: null, last: pr.square });
+      tracks.set(pr.id, { type: pr.type, color: pr.color, id: pr.id, sq0: pr.square, moves: [], appear: t + MOVE, vanish: null, last: pr.square, promoted: true });
     }
   });
 
@@ -176,17 +177,25 @@ function render(game, options = {}) {
   body.push(coords.join(''));
 
   // Last-move and check highlights (discrete jumps)
-  const hlFrames = (pick) => {
+  const onSquare = (sq) => `translate(${sqX(sq)}px,${sqY(sq)}px)`;
+  // The square-sized highlight, shrunk and moved to frame one pocket slot in the side panel.
+  const onPocket = (side, type) => {
+    const [x, y] = pocketXY(side, type);
+    const [w, h] = [11 * PX * POCKET_SCALE + 4, 12 * PX * POCKET_SCALE + 4];
+    return `translate(${num(x - BX - 2)}px,${num(y - BY - 2)}px) scale(${num(w / S)},${num(h / S)})`;
+  };
+  // Where a move came from: the square it left or, for a crazyhouse drop, the pocket slot.
+  const cameFrom = (ply) => (ply.drop ? onPocket(ply.color, ply.drop.type) : onSquare(ply.from));
+  const hlFrames = (where) => {
     let k = `0%{opacity:0;transform:translate(0px,0px)}`;
     shown.forEach((ply, i) => {
-      const sq = pick(ply);
-      k += `${pct(tPly(i))}%{opacity:.5;transform:translate(${sqX(sq)}px,${sqY(sq)}px)}`;
+      k += `${pct(tPly(i))}%{opacity:.5;transform:${where(ply)}}`;
     });
     k += `${pct(holdEnd)}%,100%{opacity:0}`;
     return k;
   };
   if (shown.length) {
-    css.push(`@keyframes hf{${hlFrames((p) => (p.from >= 0 ? p.from : p.to))}}@keyframes ht{${hlFrames((p) => p.to)}}`);
+    css.push(`@keyframes hf{${hlFrames(cameFrom)}}@keyframes ht{${hlFrames((ply) => onSquare(ply.to))}}`);
     css.push(`.hf{animation:hf ${dur} steps(1,end) infinite}.ht{animation:ht ${dur} steps(1,end) infinite}`);
     body.push(`<rect class="hf" width="${S}" height="${S}" fill="${pal.move}" opacity="0"/>`);
     body.push(`<rect class="ht" width="${S}" height="${S}" fill="${pal.move}" opacity="0"/>`);
@@ -224,9 +233,12 @@ function render(game, options = {}) {
     // so a piece is only animated in the ways it needs: one that stays put all game gets none.
     const travels = tr.drop || tr.moves.length > 0;
     const fades = tr.appear !== null || tr.vanish !== null;
+    // In crazyhouse a promoted piece turns back into a pawn when captured, so it carries a
+    // small pawn in the corner of its square.
+    const badge = startPos.pockets && tr.promoted ? `<use href="#p${tr.color}" transform="translate(${S - 10} 0) scale(.45)"/>` : '';
     const piece =
       `transform="translate(${sqX(tr.last)} ${sqY(tr.last)})"${tr.vanish === null ? '' : ' opacity="0"'}>` +
-      `<use href="#${tr.type}${tr.color}" x="${SPRITE_DX}" y="${SPRITE_DY}"/></g>`;
+      `<use href="#${tr.type}${tr.color}" x="${SPRITE_DX}" y="${SPRITE_DY}"/>${badge}</g>`;
     if (!travels && !fades) {
       pieceEls.push(`<g ${piece}`);
       continue;
@@ -246,8 +258,11 @@ function render(game, options = {}) {
     if (travels) {
       set(0, 'transform', home);
       if (tr.drop) {
+        // It lands a little oversized, centred on its square, and settles: a small bump.
+        const grown = ((DROP_BUMP - 1) * S) / 2;
         set(tr.appear, 'transform', home);
-        set(tr.appear + MOVE, 'transform', on(tr.sq0));
+        set(tr.appear + MOVE, 'transform', `translate(${num(sqX(tr.sq0) - grown)}px,${num(sqY(tr.sq0) - grown)}px) scale(${DROP_BUMP})`);
+        set(tr.appear + MOVE + 0.16, 'transform', on(tr.sq0));
       }
       for (const mv of tr.moves) {
         set(mv.t, 'transform', on(mv.from));
@@ -363,6 +378,8 @@ function render(game, options = {}) {
         });
         changes.push([reset, first]);
         const [x, y] = pocketXY(side, type);
+        // Every slot always shows its piece faintly, so an empty pocket still reads as a pocket.
+        body.push(`<use href="#${type}${side}" transform="translate(${x} ${y}) scale(${POCKET_SCALE})" opacity=".22"/>`);
         for (const v of new Set(changes.map((c) => c[1]))) {
           if (v === 0) continue;
           const el =

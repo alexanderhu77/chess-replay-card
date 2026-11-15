@@ -72,7 +72,16 @@ test('renders a Lichess crazyhouse game with drops and pockets', () => {
   assert.match(svg.match(/@keyframes fl0\{.*?\}\.fl0/)[0], /translate\(160px,32px\) scale\(1\);opacity:1/);
   assert.strictEqual(svg.match(/<g class="fl\d+"/g).length, 3, 'four captures of three kinds share three flyers');
   assert.doesNotMatch(render(demoGame()), /class="fl\d+"/, 'standard games have no flights to a pocket');
-  assert.match(svg, /translate\(280\.25px,207px\) scale\(0\.75\);opacity:1\}[\d.]+%\{transform:translate\(160px,32px\) scale\(1\)/, 'the dropped pawn slides from the pocket to f7');
+  // 8. P@f7: the pawn slides from the pocket, lands on f7 slightly oversized, then settles.
+  assert.match(
+    svg,
+    /translate\(280\.25px,207px\) scale\(0\.75\);opacity:1\}[\d.]+%\{transform:translate\(156\.48px,28\.48px\) scale\(1\.22\)\}[\d.]+%\{transform:translate\(160px,32px\) scale\(1\)/,
+    'the dropped pawn slides from the pocket to f7 and lands with a bump'
+  );
+  // The drop's "from" highlight frames the pawn slot of white's pocket instead of a square.
+  assert.match(svg.match(/@keyframes hf\{.*?\}\.hf/)[0], /translate\(282px,208px\) scale\(0\.641,0\.688\)/);
+  assert.strictEqual(svg.match(/scale\(0\.75\)" opacity="\.22"\/>/g).length, 10, 'all five slots of both pockets are always drawn faintly');
+  assert.doesNotMatch(render(demoGame()), /opacity="\.22"/, 'standard games have no pockets');
 });
 
 test('the variant option narrows which games are shown', () => {
@@ -125,4 +134,16 @@ test('only pieces that move or change are animated, and the move text is one ani
   assert.ok(still >= 8, 'pieces that never move have no animation');
   assert.strictEqual(svg.match(/class="mv"/g).length, 1, 'one scrolling strip shows the current move');
   assert.doesNotMatch(svg, /animation-delay/);
+});
+
+test('crazyhouse: a promoted piece is badged and goes to the pocket as a pawn', () => {
+  const game = normalizeLichess({
+    id: 'zhpromo1', variant: 'crazyhouse', speed: 'blitz', status: 'resign', winner: 'black',
+    players: { white: { user: { name: 'alice' } }, black: { user: { name: 'bob' } } },
+    moves: 'e4 d5 exd5 Nf6 d6 Nc6 dxc7 Bd7 cxd8=Q+ Rxd8',
+  });
+  const svg = render(game, { perspective: 'alice' });
+  assert.match(svg, /<use href="#qw" [^>]*\/><use href="#pw" transform="translate\(22 0\) scale\(\.45\)"\/><\/g>/, 'the new queen carries a pawn badge');
+  assert.match(svg, /<use class="fo\d+" href="#qw"[^>]*\/><use class="fi\d+" href="#pb"/, 'captured, it flies to the pocket as a black pawn');
+  assert.doesNotMatch(render({ ...game, variant: 'standard' }), /scale\(\.45\)/, 'no badge in standard chess');
 });
