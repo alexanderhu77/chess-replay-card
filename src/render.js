@@ -185,7 +185,7 @@ function render(game, options = {}) {
     });
     ck += `${pct(holdEnd)}%,100%{opacity:0}`;
     css.push(`@keyframes ck{${ck}}.ck{animation:ck ${dur} steps(1,end) infinite}`);
-    body.push(`<rect class="ck" width="${S}" height="${S}" rx="6" fill="${pal.check}" opacity="0"/>`);
+    body.push(`<rect class="ck" width="${S}" height="${S}" fill="${pal.check}" opacity="0"/>`);
   }
 
   // Pieces
