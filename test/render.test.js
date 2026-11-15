@@ -212,7 +212,7 @@ test('between replays the board dissolves and returns in a diagonal sweep', () =
   assert.strictEqual(squares.size, 64);
   const sweep = svg.match(/@keyframes sw\{(.*?)\}\.sw\{/)[1];
   assert.strictEqual(sweep.match(/translateX\(\d+px\)/g).length, 17);
-  assert.match(sweep, /translateX\(480px\)\}[\d.]+%,100%\{transform:translateX\(0px\);opacity:1\}$/);
+  assert.match(sweep, /translateX\(448px\)\}[\d.]+%\{transform:translateX\(480px\);opacity:0\}[\d.]+%,100%\{transform:translateX\(0px\);opacity:1\}$/);
   assert.match(svg, /\.sw1\{animation:sw1 4\.65s linear\}/);
   assert.match(svg, /<g class="sw1" clip-path="url\(#sc\)"><path class="sw" [^>]*opacity="0"\/><\/g>/);
   assert.doesNotMatch(svg, /class="pc"/);

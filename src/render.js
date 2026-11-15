@@ -467,7 +467,7 @@ function render(game, options = {}) {
   let stairs = '';
   for (let row = 0; row < 8; row++) stairs += `M${-(7 - row) * S - 1} ${row * S - 1}h${B + (7 - row) * S + 2}v${S + 2}h${-(B + (7 - row) * S + 2)}z`;
   let sweep = `0%{transform:translateX(0px);opacity:1}`;
-  for (let k = 1; k <= 15; k++) sweep += `${pct(0.08 + k * 0.055)}%{transform:translateX(${k * S}px)}`;
+  for (let k = 1; k <= 15; k++) sweep += `${pct(0.08 + k * 0.055)}%{transform:translateX(${k * S}px)${k === 15 ? ';opacity:0' : ''}}`;
   sweep += `${pct(D - 0.08)}%,100%{transform:translateX(0px);opacity:1}`;
   css.push(
     `@keyframes sw{${sweep}}.sw{${loop('sw', 'steps(1,end)')}}` +
