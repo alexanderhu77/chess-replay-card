@@ -10,6 +10,9 @@ const PIECES = {
   k: ['....#....', '...###...', '....#....', '.##.#.##.', '#########', '.#######.', '..#####..', '..#####..', '.#######.', '#########'],
 };
 
+// The white flag a king raises when its player resigns.
+const FLAG = ['######.', '######.', '######.', '######.', '#......', '#......', '#......', '#......', '#......'];
+
 /** Pads the bitmap by one pixel and returns { fill, outline } bitmaps. */
 function withOutline(rows) {
   const h = rows.length + 2;
@@ -48,4 +51,4 @@ function bitmapPath(rows, px) {
   return d;
 }
 
-module.exports = { PIECES, withOutline, bitmapPath };
+module.exports = { PIECES, FLAG, withOutline, bitmapPath };

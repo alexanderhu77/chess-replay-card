@@ -1,7 +1,7 @@
 'use strict';
 
 const { replay, POCKET_TYPES } = require('./chess');
-const { PIECES, withOutline, bitmapPath } = require('./sprites');
+const { PIECES, FLAG, withOutline, bitmapPath } = require('./sprites');
 
 const S = 32;          // square size
 const PAD = 16;
@@ -31,6 +31,11 @@ const LONGEST_QUIET_MOVE_SECONDS = 0.7;    // the most time a quiet move can get
 const CLOSING_MOVE_SECONDS = 1.1;          // average time for each of the last two moves, varied and capped like the first kind
 const SHORTEST_MOVE_SECONDS = 0.38;        // no move of any kind gets less time than this (a piece needs about this long to finish sliding)
 const THINKING_TIME_CONTRAST = 1.5;        // how sharply the curve tells quick moves from slow ones: lower spreads the times more evenly
+// What the whole card does as the last move lands. Set any of the first three to 0 to leave it out.
+const FLASH_STRENGTH = 0.42;           // how strongly the card flashes in the accent colour, from 0 to 1
+const JOLT_PIXELS = 3;                 // how far the card jolts from side to side
+const CONFETTI_PIECES = 48;            // how many pieces of confetti fall when the player the card is for has won
+const CONFETTI_SECONDS = 1.7;          // how long a piece of confetti takes to fall past the card
 const INTRO_SPEED = 1.3;               // how many times faster than its original pace the opening sequence plays
 const INTRO_PACE = { rollFrom: 0.2, rollTo: 1.2, rodsGone: 1.45, vsOut: 2.05, doorsFrom: 2.2, doorsTo: 2.85, rain: 2.85, gameStarts: 3.65 };
 const INTRO = Object.fromEntries(Object.entries(INTRO_PACE).map(([step, seconds]) => [step, Number((seconds / INTRO_SPEED).toFixed(3))]));
@@ -41,31 +46,36 @@ const PALETTES = {
     bg: '#ffffff', lightSq: '#eef1f4', darkSq: '#b7c0ca', frame: '#d0d7de',
     whiteFill: '#ffffff', whiteLine: '#1f2328', blackFill: '#1f2328', blackLine: '#ffffff',
     move: '#2da44e', check: '#cf222e', text: '#1f2328', muted: '#656d76', accent: '#1a7f37',
-    drop: '#218bff', gain: '#a475f9', wood: '#c49a5e', woodDark: '#7d5c2e', woodLight: '#ecd4a4',
+    drop: '#218bff', gain: '#a475f9', gold: '#d4a72c', wood: '#c49a5e', woodDark: '#7d5c2e', woodLight: '#ecd4a4',
   },
   dark: {
     bg: '#0d1117', lightSq: '#3b4450', darkSq: '#262c36', frame: '#30363d',
     whiteFill: '#f0f6fc', whiteLine: '#0d1117', blackFill: '#0d1117', blackLine: '#c9d1d9',
     move: '#2ea043', check: '#f85149', text: '#e6edf3', muted: '#8b949e', accent: '#3fb950',
-    drop: '#388bfd', gain: '#a371f7', wood: '#a8824c', woodDark: '#5f4523', woodLight: '#d2b07a',
+    drop: '#388bfd', gain: '#a371f7', gold: '#d4a72c', wood: '#a8824c', woodDark: '#5f4523', woodLight: '#d2b07a',
   },
 };
 
 const num = (n) => Number(n.toFixed(3)).toString();
 
 /**
- * Random numbers from a normal distribution (mean 0, standard deviation 1). They are seeded
- * by a text, so the same game always gets the same sequence and its card never changes.
+ * Random numbers from 0 up to 1. They are seeded by a text, so the same game always gets the
+ * same sequence and its card never changes.
  */
-function normalSampler(seed) {
+function uniformSampler(seed) {
   let state = 2166136261;
   for (const ch of seed) state = Math.imul(state ^ ch.charCodeAt(0), 16777619);
-  const uniform = () => {
+  return () => {
     state = (state + 0x6d2b79f5) | 0;
     let t = Math.imul(state ^ (state >>> 15), state | 1);
     t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
+}
+
+/** Random numbers from a normal distribution (mean 0, standard deviation 1), seeded the same way. */
+function normalSampler(seed) {
+  const uniform = uniformSampler(seed);
   return () => Math.sqrt(-2 * Math.log(1 - uniform())) * Math.cos(2 * Math.PI * uniform());
 }
 
@@ -206,6 +216,7 @@ function render(game, options = {}) {
   const lastT = shown.length ? tPly(shown.length - 1) + MOVE : START;
   const holdEnd = lastT + END_HOLD;
   const FADE = 0.75;
+  const resetAt = holdEnd + FADE + 0.05;   // everything goes back to how the game started, ready for the next replay
   const D = holdEnd + FADE + 0.4;
   const pct = (sec) => num(Math.min(100, Math.max(0, (sec / D) * 100)));
   const dur = `${num(D)}s`;
@@ -256,7 +267,7 @@ function render(game, options = {}) {
     `.m{fill:${pal.muted}}.a{fill:${pal.accent}}`
   );
 
-  body.push(`<rect width="${width}" height="${height}" fill="${pal.bg}"/>`);
+  const background = `<rect width="${width}" height="${height}" fill="${pal.bg}"/>`;
 
   // Sprite definitions
   const defs = [];
@@ -350,6 +361,44 @@ function render(game, options = {}) {
     const [x, y] = pocketXY(side, type);
     return `translate(${num(x - BX - SPRITE_DX * POCKET_SCALE)}px,${num(y - BY - SPRITE_DY * POCKET_SCALE)}px) scale(${POCKET_SCALE})`;
   };
+  // The king that lost acts out how the game ended: knocked over by checkmate, raising a white
+  // flag to resign, or blinking and sinking away when its clock ran out. Nothing happens until
+  // the last move has landed, and the king is itself again before the next replay.
+  const loser = shown.length ? { '1-0': 'b', '0-1': 'w' }[game.result] : undefined;
+  const defeat = game.termination === 'mate' ? 'mate' : /resign/.test(game.termination) ? 'resign' : /time/.test(game.termination) ? 'time' : null;
+  // `steps` pairs a number of seconds after the last move with a style. The first style is how
+  // things rest until then, and the last is held until the replay ends.
+  const afterLastMove = (name, steps, timing) => {
+    const [rest, held] = [steps[0][1], steps[steps.length - 1][1]];
+    const frames = [[0, rest], ...steps.map(([seconds, style]) => [lastT + seconds, style]), [resetAt - 0.01, held], [resetAt, rest], [D, rest]];
+    css.push(`@keyframes ${name}{${frames.map(([at, style]) => `${pct(at)}%{${style}}`).join('')}}.${name}{${loop(name, timing)}}`);
+  };
+  const kingEnding = (king) => {
+    const shifted = (y, opacity) => `transform:translate(0px,${y}px);opacity:${opacity}`;
+    if (defeat === 'mate') {
+      // The king shudders, topples onto its side and rocks to a stop.
+      const leaning = (degrees) => `transform:translate(${S / 2}px,20px) rotate(${degrees}deg) translate(${-S / 2}px,-20px)`;
+      const steps = [[0.12, 0], [0.18, -12], [0.24, 12], [0.3, -12], [0.36, 8], [0.62, 98], [0.72, 86], [0.8, 90]];
+      afterLastMove('ke', steps.map(([seconds, degrees]) => [seconds, leaning(degrees)]), 'ease-in-out');
+      return `<g class="ke" transform="rotate(90 ${S / 2} 20)">${king}</g>`;
+    }
+    if (defeat === 'resign') {
+      // The king stays standing, and a white flag pops up beside it.
+      const { fill, outline } = withOutline(FLAG);
+      afterLastMove('ke', [[0.22, shifted(7, 0)], [0.44, shifted(-2, 1)], [0.57, shifted(1, 1)], [0.68, shifted(0, 1)]], 'ease-in-out');
+      return (
+        `${king}<g transform="translate(${S - 15} 0)"><g class="ke">` +
+        `<path d="${bitmapPath(outline, 1.5)}" fill="${pal.whiteLine}"/><path d="${bitmapPath(fill, 1.5)}" fill="${pal.whiteFill}"/></g></g>`
+      );
+    }
+    if (defeat === 'time') {
+      // The king blinks twice, then sinks a little and fades.
+      afterLastMove('ke', [[0.12, shifted(0, 1)], [0.27, shifted(0, 0.25)], [0.42, shifted(0, 1)], [0.57, shifted(0, 0.25)], [0.72, shifted(0, 1)], [1.57, shifted(7, 0.3)]], 'linear');
+      return `<g class="ke" transform="translate(0 7)" opacity=".3">${king}</g>`;
+    }
+    return king;
+  };
+
   const pieceEls = [];
   for (const tr of tracks.values()) {
     // A browser re-evaluates every running animation on every frame, even while nothing moves,
@@ -361,9 +410,10 @@ function render(game, options = {}) {
     const badge = startPos.pockets && tr.promoted ? `<use href="#p${tr.color}" transform="translate(${S - 10} 0) scale(.45)"/>` : '';
     const rainDelay = INTRO.rain + ((7 - sqY(tr.sq0) / S) * 0.09 + (sqX(tr.sq0) / S) * 0.03) / INTRO_SPEED;
     const rain = tr.appear === null ? ` class="rn" style="animation-delay:${num(rainDelay)}s"` : '';
+    const sprite = `<use${rain} href="#${tr.type}${tr.color}" x="${SPRITE_DX}" y="${SPRITE_DY}"/>`;
     const piece =
       `transform="translate(${sqX(tr.last)} ${sqY(tr.last)})"${tr.vanish === null ? '' : ' opacity="0"'}>` +
-      `<use${rain} href="#${tr.type}${tr.color}" x="${SPRITE_DX}" y="${SPRITE_DY}"/>${badge}</g>`;
+      `${tr.type === 'k' && tr.color === loser ? kingEnding(sprite) : sprite}${badge}</g>`;
     if (!travels && !fades) {
       pieceEls.push(`<g ${piece}`);
       continue;
@@ -375,7 +425,6 @@ function render(game, options = {}) {
       if (!frames.has(key)) frames.set(key, {});
       frames.get(key)[prop] = value;
     };
-    const after = holdEnd + FADE + 0.05;
     // A dropped piece waits, hidden, on its pocket slot in the side panel, then slides onto
     // the board while growing to full size. Its keyframes all carry a scale so they interpolate.
     const on = tr.drop ? (sq) => `${pos(sq)} scale(1)` : pos;
@@ -393,7 +442,7 @@ function render(game, options = {}) {
         set(mv.t, 'transform', on(mv.from));
         set(mv.t + MOVE, 'transform', on(mv.to));
       }
-      set(after, 'transform', on(tr.last));
+      set(resetAt, 'transform', on(tr.last));
       set('end', 'transform', home);
     }
     // Promoted and dropped pieces appear mid-game; captured ones vanish. A piece can do both.
@@ -407,8 +456,8 @@ function render(game, options = {}) {
         set(tr.vanish + (tr.snap ? 0 : 0.12), 'opacity', 0);
       }
       const remains = tr.vanish === null;
-      if (tr.drop && remains) set(after - 0.01, 'opacity', 1);
-      set(after, 'opacity', remains && !tr.drop ? 1 : 0);
+      if (tr.drop && remains) set(resetAt - 0.01, 'opacity', 1);
+      set(resetAt, 'opacity', remains && !tr.drop ? 1 : 0);
       set('end', 'opacity', born);
     }
     const frameCss = [...frames.entries()]
@@ -508,7 +557,7 @@ function render(game, options = {}) {
       const LINE = 20;
       let frames = `0%{transform:translate(0px,0px)}`;
       when.forEach((t, n) => { frames += `${pct(t)}%{transform:translate(0px,${-(n + 1) * LINE}px)}`; });
-      frames += `${pct(holdEnd + FADE + 0.05)}%,100%{transform:translate(0px,0px)}`;
+      frames += `${pct(resetAt)}%,100%{transform:translate(0px,0px)}`;
       css.push(`@keyframes cl${side}{${frames}}.cl${side}{${loop(`cl${side}`, 'steps(1,end)')}}`);
       clock =
         `<clipPath id="cc${side}"><rect x="${num(right - clockWidth)}" y="${y - 11}" width="${num(clockWidth + 2)}" height="15"/></clipPath>` +
@@ -529,7 +578,6 @@ function render(game, options = {}) {
 
   // Crazyhouse pockets: the pieces each player holds in hand, next to their name.
   if (startPos.pockets) {
-    const reset = holdEnd + FADE + 0.05;
     const fadeFrom = holdEnd + 0.05;
     const pocketRow = (side) => {
       [...POCKET_TYPES].forEach((type) => {
@@ -555,7 +603,7 @@ function render(game, options = {}) {
           const [atEnd, atStart] = [count === v ? 1 : 0, first === v ? 1 : 0];
           const fade = atEnd === atStart ? '' : `${pct(fadeFrom)}%{opacity:${atEnd};animation-timing-function:linear}`;
           const name = `z${side}${type}${v}`;
-          css.push(`@keyframes ${name}{${[...frames].map(([k, o]) => `${k}%{opacity:${o}}`).join('')}${fade}${pct(reset)}%{opacity:${atStart}}}.${name}{${loop(name, 'steps(1,end)')}}`);
+          css.push(`@keyframes ${name}{${[...frames].map(([k, o]) => `${k}%{opacity:${o}}`).join('')}${fade}${pct(resetAt)}%{opacity:${atStart}}}.${name}{${loop(name, 'steps(1,end)')}}`);
           body.push(`<g class="${name}" opacity="${count === v ? 1 : 0}">${el}</g>`);
         }
       });
@@ -653,11 +701,52 @@ function render(game, options = {}) {
 
   body.push(`<g transform="translate(${BX} ${BY})">${pieceLayer}${outro}${endBanner}${intro}</g>`);
 
+  // As the last move lands the whole card flashes and jolts, and confetti falls over it if the
+  // player the card is for has won.
+  const hit = lastT + 0.05;
+  const flashes = shown.length > 0 && FLASH_STRENGTH > 0;
+  const jolts = shown.length > 0 && JOLT_PIXELS > 0;
+  const victor = loser === 'b' ? game.white : loser === 'w' ? game.black : null;
+  let effects = '';
+  if (flashes) {
+    css.push(`@keyframes wf{0%,${pct(hit)}%{opacity:0}${pct(hit + 0.07)}%{opacity:${FLASH_STRENGTH}}${pct(hit + 0.55)}%,100%{opacity:0}}.wf{${loop('wf', 'linear')}}`);
+    effects += `<rect class="wf" width="${width}" height="${height}" fill="${pal.accent}" opacity="0"/>`;
+  }
+  if (jolts) {
+    // Seconds after the hit, then how far across and down, in thirds of the full jolt.
+    const path = [[0.04, -3, 1], [0.08, 3, -1], [0.12, -2, -1], [0.16, 2, 1], [0.2, -1, 0], [0.26, 0, 0]];
+    const frames = path.map(([seconds, x, y]) => `${pct(hit + seconds)}%{transform:translate(${num((x * JOLT_PIXELS) / 3)}px,${num((y * JOLT_PIXELS) / 3)}px)}`);
+    css.push(`@keyframes wk{0%,${pct(hit)}%{transform:translate(0px,0px)}${frames.join('')}100%{transform:translate(0px,0px)}}.wk{${loop('wk', 'linear')}}`);
+  }
+  if (CONFETTI_PIECES > 0 && victor && victor.name.toLowerCase() === me) {
+    // The pieces wait above the card and fall past it in a few waves, one animation per wave.
+    const WAVES = 6;
+    const random = uniformSampler(game.moves.join(' '));
+    const colours = [pal.accent, pal.drop, pal.gain, pal.gold];
+    for (let wave = 0; wave < Math.min(WAVES, CONFETTI_PIECES); wave++) {
+      let pieces = '';
+      for (let n = wave; n < CONFETTI_PIECES; n += WAVES) {
+        const size = 3 + Math.floor(random() * 3);
+        pieces += `<rect x="${Math.round(random() * (width - 8))}" y="${-Math.round(8 + random() * 150)}" width="${size}" height="${size}" fill="${colours[Math.floor(random() * colours.length)]}"/>`;
+      }
+      const from = hit + 0.05 + wave * 0.11;
+      const to = from + CONFETTI_SECONDS;
+      const [waiting, fallen] = ['transform:translateY(0px)', `transform:translateY(${height + 170}px)`];
+      css.push(
+        `@keyframes wc${wave}{0%,${pct(from - 0.01)}%{opacity:0;${waiting}}${pct(from)}%{opacity:1;${waiting}}` +
+          `${pct(to)}%{opacity:1;${fallen}}${pct(to + 0.01)}%,100%{opacity:0;${waiting}}}.wc${wave}{${loop(`wc${wave}`, 'ease-in')}}`
+      );
+      effects += `<g class="wc${wave}" opacity="0">${pieces}</g>`;
+    }
+  }
+
   const alt = `Animated replay of ${game.white.name} vs ${game.black.name}, ${game.result}`;
   return (
     `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}" role="img" aria-label="${esc(alt)}">` +
     `<style>${css.join('')}@media (prefers-reduced-motion:reduce){*{animation:none!important}}</style>` +
-    body.join('') +
+    background +
+    (jolts ? `<g class="wk">${body.join('')}</g>` : body.join('')) +
+    effects +
     `</svg>`
   );
 }

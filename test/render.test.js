@@ -143,7 +143,7 @@ test('the Lichess download stops at the first usable game', async () => {
 test('only pieces that move or change are animated, and the move text is one animation', () => {
   const svg = render(demoGame());
   const animated = svg.match(/<g class="p\d+"/g).length;
-  const still = svg.match(/<g transform="translate\(\d+ \d+\)"><use class="rn"/g).length;
+  const still = svg.match(/<g transform="translate\(\d+ \d+\)">(?:<g class="ke"[^>]*>)?<use class="rn"/g).length;
   assert.strictEqual(animated + still, 32, 'every piece is drawn');
   assert.ok(still >= 8, 'pieces that never move have no animation');
   assert.strictEqual(svg.match(/class="mv"/g).length, 1, 'one scrolling strip shows the current move');
@@ -280,4 +280,55 @@ test('clocks sit beside the names and the time control beside the site', () => {
   assert.match(svg, /<g class="clw" transform="translate\(0 -60\)">/);
   assert.doesNotMatch(render(demoGame()), /class="cl[wb]"/);
   assert.match(render(demoGame()), />Paris, 1858</);
+});
+
+test('the king that lost acts out how the game ended', () => {
+  const mate = render(demoGame());
+  // Checkmate: Black's king ends on its side, and stands upright until the last move has landed.
+  assert.match(mate, /<g class="ke" transform="rotate\(90 16 20\)"><use class="rn" [^>]*href="#kb"[^>]*\/><\/g>/);
+  const upright = 'transform:translate\\(16px,20px\\) rotate\\(0deg\\) translate\\(-16px,-20px\\)';
+  const act = mate.match(new RegExp(`@keyframes ke\\{0%\\{${upright}\\}([\\d.]+)%\\{${upright}\\}.*?100%\\{${upright}\\}\\}\\.ke\\{`));
+  assert.ok(act, 'the king is upright at the start and the end of every replay');
+  assert.strictEqual(mate.match(/class="ke"/g).length, 1, 'the winning king is left alone');
+  // The card flashes first, then the king falls, then the banner appears.
+  const flash = Number(mate.match(/@keyframes wf\{0%,([\d.]+)%\{opacity:0\}/)[1]);
+  const banner = Number(mate.match(/@keyframes eo\{0%,([\d.]+)%\{opacity:0\}/)[1]);
+  assert.ok(flash < Number(act[1]) && Number(act[1]) < banner);
+
+  const lost = (termination) => render({ ...demoGame(), moves: ['e4', 'e5', 'Nf3'], result: '0-1', termination });
+  // Resignation: White's king stays as it is, and a flag that was hidden appears beside it.
+  for (const termination of ['resign', 'resigned']) {
+    assert.match(lost(termination), /href="#kw" x="5" y="4"\/><g transform="translate\(17 0\)"><g class="ke"><path [^>]*\/><path [^>]*fill="#ffffff"\/><\/g><\/g>/);
+    assert.match(lost(termination), /@keyframes ke\{0%\{transform:translate\(0px,7px\);opacity:0\}.*?100%\{transform:translate\(0px,7px\);opacity:0\}\}\.ke\{/);
+  }
+  // Out of time: White's king ends a little lower and faded.
+  for (const termination of ['outoftime', 'timeout']) {
+    assert.match(lost(termination), /<g class="ke" transform="translate\(0 7\)" opacity="\.3"><use class="rn" [^>]*href="#kw"/);
+    assert.match(lost(termination), /@keyframes ke\{0%\{transform:translate\(0px,0px\);opacity:1\}.*?%\{transform:translate\(0px,7px\);opacity:0\.3\}/);
+  }
+  // Any other ending leaves both kings alone.
+  for (const other of [{ result: '1/2-1/2', termination: 'stalemate' }, { result: '1/2-1/2', termination: 'timevsinsufficient' }, { result: '0-1', termination: 'abandoned' }]) {
+    assert.doesNotMatch(render({ ...demoGame(), moves: ['e4', 'e5'], ...other }), /class="ke"|@keyframes ke/);
+  }
+});
+
+test('the card flashes and jolts as the game ends, with confetti only when the featured player won', () => {
+  const won = render(demoGame(), { perspective: 'Paul Morphy' });
+  assert.match(won, /<rect class="wf" width="566" height="288" fill="#1a7f37" opacity="0"\/>/);
+  assert.match(won, /@keyframes wf\{0%,[\d.]+%\{opacity:0\}[\d.]+%\{opacity:0\.42\}[\d.]+%,100%\{opacity:0\}\}/);
+  // Everything but the background jolts, and comes to rest exactly where it started.
+  assert.match(won, /<\/style><rect width="566" height="288" fill="#ffffff"\/><g class="wk"><defs>/);
+  assert.match(won, /@keyframes wk\{0%,[\d.]+%\{transform:translate\(0px,0px\)\}[\d.]+%\{transform:translate\(-3px,1px\)\}.*?%\{transform:translate\(0px,0px\)\}100%\{transform:translate\(0px,0px\)\}\}/);
+  const waves = won.match(/<g class="wc\d" opacity="0">(?:<rect [^>]*\/>){8}<\/g>/g);
+  assert.strictEqual(waves.length, 6, '48 pieces of confetti in six waves');
+  assert.match(won, /(?:<g class="wc\d" opacity="0">.*?<\/g>){6}<\/svg>$/, 'confetti is drawn over everything else');
+
+  for (const perspective of ['Duke Karl / Count Isouard', undefined]) {
+    const svg = render(demoGame(), { perspective });
+    assert.doesNotMatch(svg, /class="wc\d"|@keyframes wc/, 'no confetti for a loss, or when the card is for nobody');
+    assert.match(svg, /class="wf"/);
+    assert.match(svg, /class="wk"/);
+  }
+  const draw = render({ ...demoGame(), moves: ['e4', 'e5'], result: '1/2-1/2', termination: 'draw' }, { perspective: 'Paul Morphy' });
+  assert.doesNotMatch(draw, /class="wc\d"/, 'no confetti for a draw');
 });
