@@ -66,6 +66,8 @@ test('renders a Lichess crazyhouse game with drops and pockets', () => {
   assert.match(svg, />8\. @f7</);
   assert.doesNotMatch(svg, /P@/);
   assert.match(svg, /@keyframes zwp1/, 'the white pawn pocket is animated');
+  assert.match(svg, /@keyframes zwp1\{[^@]*%\{opacity:1;animation-timing-function:linear\}[\d.]+%\{opacity:0\}\}\.zwp1\{/);
+  assert.doesNotMatch(svg.match(/@keyframes zwp2\{[^@]*/)[0], /linear/);
   // 5. exd5: the black pawn flies from d5 to white's pawn pocket, turning white on the way.
   assert.match(svg, /@keyframes fl0\{0%\{transform:translate\(96px,96px\) scale\(1\);opacity:0;/);
   assert.match(svg, /<g class="fl0" opacity="0"><use class="fo0" href="#pb"[^>]*\/><use class="fi0" href="#pw"[^>]*\/><\/g>/);
@@ -214,4 +216,15 @@ test('between replays the board dissolves and returns in a diagonal sweep', () =
   assert.match(svg, /\.sw1\{animation:sw1 4\.65s linear\}/);
   assert.match(svg, /<g class="sw1" clip-path="url\(#sc\)"><path class="sw" [^>]*opacity="0"\/><\/g>/);
   assert.doesNotMatch(svg, /class="pc"/);
+});
+
+test('a dropped piece is hidden before it returns to the pocket for the next replay', () => {
+  const game = normalizeLichess({
+    id: 'zhreset1', variant: 'crazyhouse', speed: 'blitz', status: 'resign', winner: 'white',
+    players: { white: { user: { name: 'alice' } }, black: { user: { name: 'bob' } } },
+    moves: 'e4 e5 Nf3 Nc6 Bc4 Nf6 Ng5 d5 exd5 Nxd5 Nxf7 Kxf7 Qf3+ Ke6 P@f7 Nce7 Qe4',
+  });
+  const svg = render(game, { perspective: 'alice' });
+  const dropped = svg.match(/@keyframes p\d+\{0%\{transform:translate\(280\.25px,207px\) scale\(0\.75\);opacity:0\}.*?\}\}/)[0];
+  assert.match(dropped, /%\{opacity:1\}[\d.]+%\{transform:translate\(160px,32px\) scale\(1\);opacity:0\}100%\{transform:translate\(280\.25px,207px\) scale\(0\.75\);opacity:0\}\}$/);
 });

@@ -292,7 +292,9 @@ function render(game, options = {}) {
         set(tr.vanish - (tr.snap ? 0.01 : 0.02), 'opacity', 1);
         set(tr.vanish + (tr.snap ? 0 : 0.12), 'opacity', 0);
       }
-      set(after, 'opacity', tr.vanish === null ? 1 : 0);
+      const remains = tr.vanish === null;
+      if (tr.drop && remains) set(after - 0.01, 'opacity', 1);
+      set(after, 'opacity', remains && !tr.drop ? 1 : 0);
       set('end', 'opacity', born);
     }
     const frameCss = [...frames.entries()]
@@ -384,6 +386,7 @@ function render(game, options = {}) {
   // Crazyhouse pockets: the pieces each player holds in hand, next to their name.
   if (startPos.pockets) {
     const reset = holdEnd + FADE + 0.05;
+    const fadeFrom = holdEnd + 0.05;
     const pocketRow = (side) => {
       [...POCKET_TYPES].forEach((type) => {
         // Count over time: a dropped piece leaves the pocket as it starts to slide, a captured one is added when it flies in.
@@ -395,7 +398,6 @@ function render(game, options = {}) {
           if (c !== count) changes.push([ply.drop ? tPly(i) : tPly(i) + FLY_WAIT + FLY, c]);
           count = c;
         });
-        changes.push([reset, first]);
         const [x, y] = pocketXY(side, type);
         // Every slot always shows its piece faintly, so an empty pocket still reads as a pocket.
         body.push(`<use href="#${type}${side}" transform="translate(${x} ${y}) scale(${POCKET_SCALE})" opacity=".22"/>`);
@@ -404,10 +406,12 @@ function render(game, options = {}) {
           const el =
             `<use href="#${type}${side}" transform="translate(${x} ${y}) scale(${POCKET_SCALE})"/>` +
             (v > 1 ? `<text x="${num(x + 11 * PX * POCKET_SCALE + 1.8)}" y="${num(y + 12 * PX * POCKET_SCALE - 1.4)}" font-size="${COUNT_SIZE}" class="m">${v}</text>` : '');
-          if (changes.length === 2) { body.push(el); continue; }
+          if (changes.length === 1) { body.push(el); continue; }
           const frames = new Map(changes.map(([t, c]) => [pct(t), c === v ? 1 : 0]));
+          const [atEnd, atStart] = [count === v ? 1 : 0, first === v ? 1 : 0];
+          const fade = atEnd === atStart ? '' : `${pct(fadeFrom)}%{opacity:${atEnd};animation-timing-function:linear}`;
           const name = `z${side}${type}${v}`;
-          css.push(`@keyframes ${name}{${[...frames].map(([k, o]) => `${k}%{opacity:${o}}`).join('')}}.${name}{${loop(name, 'steps(1,end)')}}`);
+          css.push(`@keyframes ${name}{${[...frames].map(([k, o]) => `${k}%{opacity:${o}}`).join('')}${fade}${pct(reset)}%{opacity:${atStart}}}.${name}{${loop(name, 'steps(1,end)')}}`);
           body.push(`<g class="${name}" opacity="${count === v ? 1 : 0}">${el}</g>`);
         }
       });
