@@ -31,7 +31,7 @@ jobs:
   generate:
     runs-on: ubuntu-latest
     steps:
-      - uses: surya6032/chess-replay-card@v1.0.0
+      - uses: alexanderhu77/chess-replay-card@main
         with:
           username: YOUR_CHESS_USERNAME
           platform: lichess   # or chesscom
