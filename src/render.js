@@ -10,8 +10,12 @@ const PANEL_W = 250;
 const PX = 2;          // sprite pixel size
 const SPRITE_DX = (S - 11 * PX) / 2;   // offset that centers a sprite in its square
 const SPRITE_DY = (S - 12 * PX) / 2;
-const POCKET_SCALE = 0.6;              // crazyhouse pocket pieces are drawn smaller
-const POCKET_SLOT = 28;                // horizontal spacing of pocket pieces
+const NAME_SIZE = 14;                  // player names
+const SCORE_SIZE = 15;                 // the 1, 0 or ½ at the end of each player's row
+const KING_SCALE = 0.85;               // the king beside each name, relative to a board piece
+const POCKET_SCALE = 0.75;             // crazyhouse pocket pieces, relative to a board piece
+const POCKET_SLOT = 32;                // horizontal spacing of pocket pieces
+const COUNT_SIZE = 10;                 // the number beside a pocket piece held more than once
 
 const PALETTES = {
   light: {
@@ -29,18 +33,6 @@ const PALETTES = {
 const num = (n) => Number(n.toFixed(3)).toString();
 const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 const trunc = (s, n) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
-
-function wrap(text, width, maxLines) {
-  const words = text.split(/\s+/);
-  const lines = [''];
-  for (const w of words) {
-    const cur = lines[lines.length - 1];
-    if ((cur + ' ' + w).trim().length <= width) lines[lines.length - 1] = (cur + ' ' + w).trim();
-    else if (lines.length < maxLines) lines.push(w);
-    else { lines[lines.length - 1] = trunc(cur + ' ' + w, width); break; }
-  }
-  return lines;
-}
 
 const END_LABEL = {
   mate: 'CHECKMATE', resign: 'RESIGNATION', resigned: 'RESIGNATION', outoftime: 'TIME OUT', timeout: 'TIME OUT',
@@ -77,9 +69,14 @@ function render(game, options = {}) {
   const topSide = flipped ? 'w' : 'b';
   const bottomSide = flipped ? 'b' : 'w';
   // Where a crazyhouse pocket piece is drawn in the side panel (page coordinates, at POCKET_SCALE).
+  // Player rows hug the top and bottom edges of the board; each pocket sits just inside its row.
+  const topNameY = BY + Math.round(12 * PX * KING_SCALE) - 2;   // text baseline of the top player's name
+  const bottomNameY = BY + 8 * S - 4;
+  const pocketTop = topNameY + 8;
+  const pocketBottom = Math.round(bottomNameY + 1 - 12 * PX * KING_SCALE - 5 - 12 * PX * POCKET_SCALE);
   const pocketXY = (side, type) => [
     PX0 + POCKET_TYPES.indexOf(type) * POCKET_SLOT,
-    side === topSide ? BY + 24 : BY + 8 * S - 40,
+    side === topSide ? pocketTop : pocketBottom,
   ];
 
   // Timeline (seconds)
@@ -338,15 +335,17 @@ function render(game, options = {}) {
   const playerRow = (side, y) => {
     const p = side === 'w' ? game.white : game.black;
     const isMe = me && p.name.toLowerCase() === me;
-    const rating = p.rating ? ` (${p.rating})` : '';
+    // A name is cut to what fits between the king and the score (monospace letters are 0.6em wide).
+    const nameX = PX0 + 11 * PX * KING_SCALE + 7.5;
+    const maxName = Math.floor((PX0 + PANEL_W - nameX - (0.6 * SCORE_SIZE + 8)) / (0.6 * NAME_SIZE));
     return (
-      `<use href="#k${side}" transform="translate(${PX0} ${y - 17}) scale(.75)"/>` +
-      `<text x="${PX0 + 24}" y="${y}" font-size="12"${isMe ? ` font-weight="700"` : ''}>${esc(trunc(p.name, 22))}<tspan class="m" font-weight="400">${esc(rating)}</tspan></text>` +
-      `<text x="${PX0 + PANEL_W}" y="${y}" text-anchor="end" font-size="13" font-weight="700" class="a">${score(side)}</text>`
+      `<use href="#k${side}" transform="translate(${PX0} ${num(y + 1 - 12 * PX * KING_SCALE)}) scale(${KING_SCALE})"/>` +
+      `<text x="${num(nameX)}" y="${y}" font-size="${NAME_SIZE}"${isMe ? ` font-weight="700"` : ''}>${esc(trunc(p.name, maxName))}</text>` +
+      `<text x="${PX0 + PANEL_W}" y="${y}" text-anchor="end" font-size="${SCORE_SIZE}" font-weight="700" class="a">${score(side)}</text>`
     );
   };
-  body.push(playerRow(topSide, BY + 16));
-  body.push(playerRow(bottomSide, BY + 8 * S - 4));
+  body.push(playerRow(topSide, topNameY));
+  body.push(playerRow(bottomSide, bottomNameY));
 
   // Crazyhouse pockets: the pieces each player holds in hand, next to their name.
   if (startPos.pockets) {
@@ -368,7 +367,7 @@ function render(game, options = {}) {
           if (v === 0) continue;
           const el =
             `<use href="#${type}${side}" transform="translate(${x} ${y}) scale(${POCKET_SCALE})"/>` +
-            (v > 1 ? `<text x="${x + 15}" y="${y + 13}" font-size="9" class="m">${v}</text>` : '');
+            (v > 1 ? `<text x="${num(x + 11 * PX * POCKET_SCALE + 1.8)}" y="${num(y + 12 * PX * POCKET_SCALE - 1.4)}" font-size="${COUNT_SIZE}" class="m">${v}</text>` : '');
           if (changes.length === 2) { body.push(el); continue; }
           const frames = new Map(changes.map(([t, c]) => [pct(t), c === v ? 1 : 0]));
           const name = `z${side}${type}${v}`;
@@ -381,24 +380,8 @@ function render(game, options = {}) {
     pocketRow(bottomSide);
   }
 
-  // Middle: game info and the current move
-  let y = BY + 52;
-  const variantName = game.variant === 'crazyhouse' ? 'Crazyhouse' : null;
-  const info = [variantName, game.timeClass, game.clock].filter(Boolean).join(' ');
-  const date = game.date
-    ? game.date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' })
-    : null;
-  const meta = [info, date].filter(Boolean).join(', ');
-  if (meta) { body.push(`<text x="${PX0}" y="${y}" font-size="10" class="m">${esc(meta)}</text>`); y += 16; }
-  if (game.opening) {
-    for (const line of wrap(game.opening, 34, 2)) {
-      body.push(`<text x="${PX0}" y="${y}" font-size="10" class="m">${esc(line)}</text>`);
-      y += 13;
-    }
-  }
-
-  const moveY = BY + 4 * S + 18;
-  body.push(`<text x="${PX0}" y="${moveY - 28}" font-size="10" class="m">Move</text>`);
+  // Middle of the panel: the current move, then the result and where the game was played.
+  const moveY = BY + 4 * S - 11;
   if (shown.length) {
     // The current move. Each move is a line on one tall strip seen through a one-line window,
     // and a single stepped animation scrolls the strip: one running animation, not one per move.
@@ -418,10 +401,8 @@ function render(game, options = {}) {
     );
   }
 
-  const progress = startPly > 0 ? `Last ${Math.ceil(shown.length / 2)} of ${Math.ceil(plies.length / 2)} moves` : `${Math.ceil(plies.length / 2)} moves`;
-  body.push(`<text x="${PX0}" y="${moveY + 20}" font-size="10" class="m">${esc(progress)}</text>`);
-  body.push(`<text x="${PX0}" y="${moveY + 48}" font-size="11" class="a">${esc(game.ending || '')}</text>`);
-  body.push(`<text x="${PX0}" y="${moveY + 62}" font-size="9" class="m">${esc(game.source || '')}</text>`);
+  body.push(`<text x="${PX0}" y="${moveY + 24}" font-size="11" class="a">${esc(game.ending || '')}</text>`);
+  body.push(`<text x="${PX0}" y="${moveY + 38}" font-size="9" class="m">${esc(game.source || '')}</text>`);
 
   body.push(`<g transform="translate(${BX} ${BY})">${pieceLayer}${endBanner}</g>`);
 

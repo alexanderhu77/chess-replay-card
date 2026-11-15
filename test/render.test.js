@@ -24,7 +24,9 @@ test('flips the board when the user played black', () => {
 
 test('max_moves trims long games to the last moves', () => {
   const svg = render(demoGame(), { maxMoves: 5 });
-  assert.match(svg, /Last 5 of 17 moves/);
+  assert.doesNotMatch(svg, />11[.…] /, 'moves before the last five are left out');
+  assert.match(svg, />12… Rd8</);
+  assert.match(svg, /17\. Rd8#/);
 });
 
 test('parsePgn strips comments, clocks, variations and results', () => {
@@ -60,7 +62,7 @@ test('renders a Lichess crazyhouse game with drops and pockets', () => {
   });
   assert.strictEqual(game.variant, 'crazyhouse');
   const svg = render(game, { perspective: 'alice' });
-  assert.match(svg, /Crazyhouse Blitz 3\+0/);
+  assert.doesNotMatch(svg, /Blitz|Crazyhouse|moves</, 'the panel shows no time control, variant or move count');
   assert.match(svg, /8\. P@f7/);
   assert.match(svg, /@keyframes zwp1/, 'the white pawn pocket is animated');
   // 5. exd5: the black pawn flies from d5 to white's pawn pocket, turning white on the way.
@@ -70,7 +72,7 @@ test('renders a Lichess crazyhouse game with drops and pockets', () => {
   assert.match(svg.match(/@keyframes fl0\{.*?\}\.fl0/)[0], /translate\(160px,32px\) scale\(1\);opacity:1/);
   assert.strictEqual(svg.match(/<g class="fl\d+"/g).length, 3, 'four captures of three kinds share three flyers');
   assert.doesNotMatch(render(demoGame()), /class="fl\d+"/, 'standard games have no flights to a pocket');
-  assert.match(svg, /translate\(281px,213\.6px\) scale\(0\.6\);opacity:1\}[\d.]+%\{transform:translate\(160px,32px\) scale\(1\)/, 'the dropped pawn slides from the pocket to f7');
+  assert.match(svg, /translate\(280\.25px,207px\) scale\(0\.75\);opacity:1\}[\d.]+%\{transform:translate\(160px,32px\) scale\(1\)/, 'the dropped pawn slides from the pocket to f7');
 });
 
 test('the variant option narrows which games are shown', () => {
