@@ -8,6 +8,10 @@ const PAD = 16;
 const PANEL_GAP = 28;
 const PANEL_W = 250;
 const PX = 2;          // sprite pixel size
+const SPRITE_DX = (S - 11 * PX) / 2;   // offset that centers a sprite in its square
+const SPRITE_DY = (S - 12 * PX) / 2;
+const POCKET_SCALE = 0.6;              // crazyhouse pocket pieces are drawn smaller
+const POCKET_SLOT = 28;                // horizontal spacing of pocket pieces
 
 const PALETTES = {
   light: {
@@ -69,6 +73,14 @@ function render(game, options = {}) {
   const BY = PAD;
   const width = PAD + 8 * S + PANEL_GAP + PANEL_W + PAD;
   const height = PAD + 8 * S + PAD;
+  const PX0 = PAD + 8 * S + PANEL_GAP;   // left edge of the side panel
+  const topSide = flipped ? 'w' : 'b';
+  const bottomSide = flipped ? 'b' : 'w';
+  // Where a crazyhouse pocket piece is drawn in the side panel (page coordinates, at POCKET_SCALE).
+  const pocketXY = (side, type) => [
+    PX0 + POCKET_TYPES.indexOf(type) * POCKET_SLOT,
+    side === topSide ? BY + 24 : BY + 8 * S - 40,
+  ];
 
   // Timeline (seconds)
   const STEP = 0.9 / speed;
@@ -98,7 +110,7 @@ function render(game, options = {}) {
     if (ply.captured !== null) tracks.get(ply.captured).vanish = t + MOVE;
     if (ply.drop) {
       const d = ply.drop;
-      tracks.set(d.id, { type: d.type, color: d.color, id: d.id, sq0: d.square, moves: [], appear: t, vanish: null, last: d.square });
+      tracks.set(d.id, { type: d.type, color: d.color, id: d.id, sq0: d.square, moves: [], appear: t, vanish: null, last: d.square, drop: true });
     }
     if (ply.promotion) {
       const pr = ply.promotion;
@@ -192,13 +204,27 @@ function render(game, options = {}) {
       frames.get(key)[prop] = value;
     };
     const after = holdEnd + FADE + 0.05;
-    set(0, 'transform', pos(tr.sq0));
-    for (const mv of tr.moves) {
-      set(mv.t, 'transform', pos(mv.from));
-      set(mv.t + MOVE, 'transform', pos(mv.to));
+    // A dropped piece waits, hidden, on its pocket slot in the side panel, then slides onto
+    // the board while growing to full size. Its keyframes all carry a scale so they interpolate.
+    const on = tr.drop ? (sq) => `${pos(sq)} scale(1)` : pos;
+    let home = pos(tr.sq0);
+    if (tr.drop) {
+      const [x, y] = pocketXY(tr.color, tr.type);
+      const hx = num(x - BX - SPRITE_DX * POCKET_SCALE);
+      const hy = num(y - BY - SPRITE_DY * POCKET_SCALE);
+      home = `translate(${hx}px,${hy}px) scale(${POCKET_SCALE})`;
     }
-    set(after, 'transform', pos(tr.last));
-    set('end', 'transform', pos(tr.sq0));
+    set(0, 'transform', home);
+    if (tr.drop) {
+      set(tr.appear, 'transform', home);
+      set(tr.appear + MOVE, 'transform', on(tr.sq0));
+    }
+    for (const mv of tr.moves) {
+      set(mv.t, 'transform', on(mv.from));
+      set(mv.t + MOVE, 'transform', on(mv.to));
+    }
+    set(after, 'transform', on(tr.last));
+    set('end', 'transform', home);
     // Promoted and dropped pieces appear mid-game; captured ones vanish. A piece can do both.
     if (tr.appear !== null || tr.vanish !== null) {
       const born = tr.appear === null ? 1 : 0;
@@ -216,10 +242,12 @@ function render(game, options = {}) {
     const finalVisible = tr.vanish === null;
     pieceEls.push(
       `<g class="p${tr.id}" transform="translate(${sqX(tr.last)} ${sqY(tr.last)})"${finalVisible ? '' : ' opacity="0"'}>` +
-        `<use href="#${tr.type}${tr.color}" x="${(S - 11 * PX) / 2}" y="${(S - 12 * PX) / 2}"/></g>`
+        `<use href="#${tr.type}${tr.color}" x="${SPRITE_DX}" y="${SPRITE_DY}"/></g>`
     );
   }
-  body.push(`<g class="pc">${pieceEls.join('')}</g>`);
+  // Pieces and the end banner are drawn last, above the side panel, so that a dropped
+  // piece stays on top while it slides in from its pocket.
+  const pieceLayer = `<g class="pc">${pieceEls.join('')}</g>`;
 
   // End-of-game overlay
   const label = END_LABEL[game.termination] || (game.result === '1/2-1/2' ? 'DRAW' : 'GAME OVER');
@@ -227,14 +255,13 @@ function render(game, options = {}) {
     `@keyframes eo{0%,${pct(lastT + 0.3)}%{opacity:0}${pct(lastT + 0.6)}%,${pct(holdEnd)}%{opacity:1}${pct(holdEnd + FADE)}%,100%{opacity:0}}` +
       `.eo{animation:eo ${dur} linear infinite}`
   );
-  body.push(
+  const endBanner = (
     `<g class="eo" opacity="0"><rect x="${S * 1.5}" y="${S * 3.3}" width="${S * 5}" height="${S * 1.4}" rx="6" fill="${pal.bg}" opacity=".88"/>` +
       `<text x="${S * 4}" y="${S * 4 + 5}" text-anchor="middle" font-size="15" font-weight="700" letter-spacing="2" class="a">${label}</text></g>`
   );
   body.push(`</g>`);
 
   // Side panel
-  const PX0 = PAD + 8 * S + PANEL_GAP;
   const score = (side) => {
     if (game.result === '1/2-1/2') return '½';
     if (game.result === '1-0') return side === 'w' ? '1' : '0';
@@ -251,17 +278,15 @@ function render(game, options = {}) {
       `<text x="${PX0 + PANEL_W}" y="${y}" text-anchor="end" font-size="13" font-weight="700" class="a">${score(side)}</text>`
     );
   };
-  const topSide = flipped ? 'w' : 'b';
-  const bottomSide = flipped ? 'b' : 'w';
   body.push(playerRow(topSide, BY + 16));
   body.push(playerRow(bottomSide, BY + 8 * S - 4));
 
   // Crazyhouse pockets: the pieces each player holds in hand, next to their name.
   if (startPos.pockets) {
     const reset = holdEnd + FADE + 0.05;
-    const pocketRow = (side, y) => {
-      [...POCKET_TYPES].forEach((type, slot) => {
-        // Count over time: drops leave the pocket as they land, captures arrive when the move ends.
+    const pocketRow = (side) => {
+      [...POCKET_TYPES].forEach((type) => {
+        // Count over time: a dropped piece leaves the pocket as it starts to slide, captures arrive when the move ends.
         const first = startPos.pockets[side][type];
         const changes = [[0, first]];
         let count = first;
@@ -271,11 +296,11 @@ function render(game, options = {}) {
           count = c;
         });
         changes.push([reset, first]);
-        const x = PX0 + slot * 28;
+        const [x, y] = pocketXY(side, type);
         for (const v of new Set(changes.map((c) => c[1]))) {
           if (v === 0) continue;
           const el =
-            `<use href="#${type}${side}" transform="translate(${x} ${y}) scale(.6)"/>` +
+            `<use href="#${type}${side}" transform="translate(${x} ${y}) scale(${POCKET_SCALE})"/>` +
             (v > 1 ? `<text x="${x + 15}" y="${y + 13}" font-size="9" class="m">${v}</text>` : '');
           if (changes.length === 2) { body.push(el); continue; }
           const frames = new Map(changes.map(([t, c]) => [pct(t), c === v ? 1 : 0]));
@@ -285,8 +310,8 @@ function render(game, options = {}) {
         }
       });
     };
-    pocketRow(topSide, BY + 24);
-    pocketRow(bottomSide, BY + 8 * S - 40);
+    pocketRow(topSide);
+    pocketRow(bottomSide);
   }
 
   // Middle: game info and the current move
@@ -323,6 +348,8 @@ function render(game, options = {}) {
   body.push(`<text x="${PX0}" y="${moveY + 20}" font-size="10" class="m">${esc(progress)}</text>`);
   body.push(`<text x="${PX0}" y="${moveY + 48}" font-size="11" class="a">${esc(game.ending || '')}</text>`);
   body.push(`<text x="${PX0}" y="${moveY + 62}" font-size="9" class="m">${esc(game.source || '')}</text>`);
+
+  body.push(`<g transform="translate(${BX} ${BY})">${pieceLayer}${endBanner}</g>`);
 
   const alt = `Animated replay of ${game.white.name} vs ${game.black.name}, ${game.result}`;
   return (

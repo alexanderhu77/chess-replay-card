@@ -63,6 +63,7 @@ test('renders a Lichess crazyhouse game with drops and pockets', () => {
   assert.match(svg, /Crazyhouse Blitz 3\+0/);
   assert.match(svg, /8\. P@f7/);
   assert.match(svg, /@keyframes zwp1/, 'the white pawn pocket is animated');
+  assert.match(svg, /translate\(281px,213\.6px\) scale\(0\.6\);opacity:1\}[\d.]+%\{transform:translate\(160px,32px\) scale\(1\)/, 'the dropped pawn slides from the pocket to f7');
 });
 
 test('the variant option narrows which games are shown', () => {
