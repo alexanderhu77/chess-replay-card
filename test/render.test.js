@@ -75,3 +75,18 @@ test('the variant option narrows which games are shown', () => {
   assert.deepStrictEqual(wantedVariants('Crazyhouse'), ['crazyhouse']);
   assert.throws(() => wantedVariants('atomic'), /Unknown variant/);
 });
+
+test('the check highlight clears as the king starts to move out of check', () => {
+  const game = { ...demoGame(), moves: ['e4', 'e5', 'Qh5', 'Nc6', 'Qxf7+', 'Kxf7'], result: '0-1', termination: 'resign' };
+  const svg = render(game);
+  // The moment the king leaves e8: its square becomes the green "from" highlight.
+  const start = svg.match(/@keyframes hf\{.*?([\d.]+)%\{opacity:\.5;transform:translate\(128px,0px\)\}/)[1];
+  const check = svg.match(/@keyframes ck\{(.*?)\}\.ck/)[1];
+  assert.match(check, /\{opacity:\.6;transform:translate\(128px,0px\)\}/, 'e8 turns red after Qxf7+');
+  assert.ok(check.includes(`}${start}%{opacity:0}`), 'the red is gone when the king sets off, not when it lands');
+
+  // A check answered without moving the king stays red until the reply lands.
+  const blocked = render({ ...game, moves: ['e4', 'd5', 'Bb5+', 'c6'] });
+  const blockStart = blocked.match(/@keyframes hf\{.*?([\d.]+)%\{opacity:\.5;transform:translate\(64px,32px\)\}/)[1];
+  assert.ok(!blocked.match(/@keyframes ck\{(.*?)\}\.ck/)[1].includes(`}${blockStart}%{opacity:0}`));
+});

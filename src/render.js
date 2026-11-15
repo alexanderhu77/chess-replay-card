@@ -196,6 +196,10 @@ function render(game, options = {}) {
 
     let ck = `0%{opacity:0}`;
     shown.forEach((ply, i) => {
+      // A king stepping out of check leaves the red square behind, so clear it as the king
+      // sets off: the square it came from then shows the green last-move highlight.
+      const kingEscapes = i > 0 && shown[i - 1].check && ply.from >= 0 && ply.before.board[ply.from].type === 'k';
+      if (kingEscapes) ck += `${pct(tPly(i))}%{opacity:0}`;
       const t = pct(tPly(i) + MOVE);
       ck += ply.check
         ? `${t}%{opacity:.6;transform:translate(${sqX(ply.checkedKing)}px,${sqY(ply.checkedKing)}px)}`
