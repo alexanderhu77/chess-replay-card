@@ -332,3 +332,13 @@ test('the card flashes and jolts as the game ends, with confetti only when the f
   const draw = render({ ...demoGame(), moves: ['e4', 'e5'], result: '1/2-1/2', termination: 'draw' }, { perspective: 'Paul Morphy' });
   assert.doesNotMatch(draw, /class="wc\d"/, 'no confetti for a draw');
 });
+
+test("the featured player's name is gold, in the panel and on the intro card", () => {
+  const svg = render(demoGame(), { perspective: 'Paul Morphy' });
+  assert.match(svg, /\.g\{fill:#9a6700\}/, 'a darker gold on the light card, so the name stays readable');
+  assert.match(render(demoGame(), { palette: 'dark', perspective: 'Paul Morphy' }), /\.g\{fill:#d4a72c\}/);
+  assert.match(svg, /font-size="14" font-weight="700" class="g">Paul Morphy</);
+  assert.match(svg, /font-size="15" font-weight="700" class="g">Paul Morphy</);
+  assert.strictEqual(svg.match(/class="g"/g).length, 2, "the opponent's name stays plain");
+  assert.doesNotMatch(render(demoGame()), /class="g"/, 'no gold name when the card is for nobody');
+});

@@ -46,13 +46,13 @@ const PALETTES = {
     bg: '#ffffff', lightSq: '#eef1f4', darkSq: '#b7c0ca', frame: '#d0d7de',
     whiteFill: '#ffffff', whiteLine: '#1f2328', blackFill: '#1f2328', blackLine: '#ffffff',
     move: '#2da44e', check: '#cf222e', text: '#1f2328', muted: '#656d76', accent: '#1a7f37',
-    drop: '#218bff', gain: '#a475f9', gold: '#d4a72c', wood: '#c49a5e', woodDark: '#7d5c2e', woodLight: '#ecd4a4',
+    drop: '#218bff', gain: '#a475f9', gold: '#d4a72c', goldText: '#9a6700', wood: '#c49a5e', woodDark: '#7d5c2e', woodLight: '#ecd4a4',
   },
   dark: {
     bg: '#0d1117', lightSq: '#3b4450', darkSq: '#262c36', frame: '#30363d',
     whiteFill: '#f0f6fc', whiteLine: '#0d1117', blackFill: '#0d1117', blackLine: '#c9d1d9',
     move: '#2ea043', check: '#f85149', text: '#e6edf3', muted: '#8b949e', accent: '#3fb950',
-    drop: '#388bfd', gain: '#a371f7', gold: '#d4a72c', wood: '#a8824c', woodDark: '#5f4523', woodLight: '#d2b07a',
+    drop: '#388bfd', gain: '#a371f7', gold: '#d4a72c', goldText: '#d4a72c', wood: '#a8824c', woodDark: '#5f4523', woodLight: '#d2b07a',
   },
 };
 
@@ -264,7 +264,7 @@ function render(game, options = {}) {
   const body = [];
   css.push(
     `text{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;fill:${pal.text}}`,
-    `.m{fill:${pal.muted}}.a{fill:${pal.accent}}`
+    `.m{fill:${pal.muted}}.a{fill:${pal.accent}}.g{fill:${pal.goldText}}`
   );
 
   const background = `<rect width="${width}" height="${height}" fill="${pal.bg}"/>`;
@@ -569,7 +569,7 @@ function render(game, options = {}) {
     result.push(`<text x="${PX0 + PANEL_W}" y="${y}" text-anchor="end" font-size="${SCORE_SIZE}" font-weight="700" class="a">${score(side)}</text>`);
     return (
       `<use href="#k${side}" transform="translate(${PX0} ${num(y + 1 - 12 * PX * KING_SCALE)}) scale(${KING_SCALE})"/>` +
-      `<text x="${num(nameX)}" y="${y}" font-size="${NAME_SIZE}"${isMe ? ` font-weight="700"` : ''}>${esc(trunc(p.name, maxName))}</text>` +
+      `<text x="${num(nameX)}" y="${y}" font-size="${NAME_SIZE}"${isMe ? ` font-weight="700" class="g"` : ''}>${esc(trunc(p.name, maxName))}</text>` +
       clock
     );
   };
@@ -670,6 +670,7 @@ function render(game, options = {}) {
     `<g class="sw1" clip-path="url(#sc)"><path class="sw" d="${stairs}" fill="${pal.bg}" opacity="0"/></g>`;
 
   const cardName = (side) => esc(trunc((side === 'w' ? game.white : game.black).name, 22));
+  const cardClass = (side) => (me && (side === 'w' ? game.white : game.black).name.toLowerCase() === me ? ' class="g"' : '');
   const open = B / 2 + 3;
   const rod = (cls) =>
     `<g class="${cls}" opacity="0"><rect x="-6" y="-10" width="12" height="${B + 20}" rx="3" fill="${pal.wood}"/>` +
@@ -692,9 +693,9 @@ function render(game, options = {}) {
   const intro =
     `<clipPath id="bc"><rect x="-3" y="-3" width="${B + 6}" height="${B + 6}" rx="4"/></clipPath><g clip-path="url(#bc)">` +
     `<g class="vt" opacity="0"><rect x="-3" y="-3" width="${B + 6}" height="${open}" fill="${pal.bg}"/><use href="#k${topSide}" x="${B / 2 - 11}" y="36"/>` +
-    `<text x="${B / 2}" y="86" text-anchor="middle" font-size="15" font-weight="700">${cardName(topSide)}</text></g>` +
+    `<text x="${B / 2}" y="86" text-anchor="middle" font-size="15" font-weight="700"${cardClass(topSide)}>${cardName(topSide)}</text></g>` +
     `<g class="vb" opacity="0"><rect x="-3" y="${B / 2}" width="${B + 6}" height="${open}" fill="${pal.bg}"/><use href="#k${bottomSide}" x="${B / 2 - 11}" y="${B - 60}"/>` +
-    `<text x="${B / 2}" y="${B - 74}" text-anchor="middle" font-size="15" font-weight="700">${cardName(bottomSide)}</text></g>` +
+    `<text x="${B / 2}" y="${B - 74}" text-anchor="middle" font-size="15" font-weight="700"${cardClass(bottomSide)}>${cardName(bottomSide)}</text></g>` +
     `<text class="vv a" x="${B / 2}" y="${B / 2 + 8}" text-anchor="middle" font-size="24" font-weight="700" letter-spacing="3" opacity="0">VS</text>` +
     `<rect class="sl" x="-3" y="-3" width="${open}" height="${B + 6}" fill="${pal.bg}" opacity="0"/>` +
     `<rect class="sr" x="${B / 2}" y="-3" width="${open}" height="${B + 6}" fill="${pal.bg}" opacity="0"/></g>${rod('rl')}${rod('rr')}`;
