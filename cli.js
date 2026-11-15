@@ -18,6 +18,7 @@ Options:
   --user <name>        Your Lichess or Chess.com username
   --platform <name>    lichess (default) or chesscom
   --game <id>          A specific Lichess game id instead of your latest game
+  --variant <name>     Lichess only: standard, crazyhouse or any (default: any)
   --demo               Render the famous 1858 "Opera Game" (no network needed)
   --out <dir>          Output directory (default: dist)
   --speed <n>          Animation speed multiplier, 0.25 to 4 (default: 1)
@@ -43,7 +44,7 @@ async function main() {
   }
   const game = args.demo
     ? demoGame()
-    : await fetchGame({ platform: args.platform, username: args.user, gameId: args.game });
+    : await fetchGame({ platform: args.platform, username: args.user, gameId: args.game, variant: args.variant });
   const perspective = args.demo ? game.white.name : args.user;
 
   fs.mkdirSync(args.out, { recursive: true });

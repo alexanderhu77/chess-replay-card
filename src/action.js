@@ -11,11 +11,12 @@ async function main() {
   const platform = input('platform', 'lichess').toLowerCase();
   const username = input('username');
   const gameId = input('game_id');
+  const variant = input('variant');
   const outDir = input('output_dir', 'dist');
   const speed = Number(input('speed', '1'));
   const maxMoves = Number(input('max_moves', '60'));
 
-  const game = await fetchGame({ platform, username, gameId });
+  const game = await fetchGame({ platform, username, gameId, variant });
   fs.mkdirSync(outDir, { recursive: true });
   for (const palette of ['light', 'dark']) {
     const name = palette === 'dark' ? 'chess-replay-dark.svg' : 'chess-replay.svg';

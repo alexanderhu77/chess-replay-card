@@ -5,7 +5,7 @@ const assert = require('node:assert');
 const { render } = require('../src/render');
 const { demoGame } = require('../src/demo');
 const { parsePgn } = require('../src/pgn');
-const { normalizeLichess, openingFromEcoUrl } = require('../src/sources');
+const { normalizeLichess, openingFromEcoUrl, wantedVariants } = require('../src/sources');
 
 test('renders the Opera Game ending in checkmate', () => {
   const svg = render(demoGame(), { palette: 'dark', perspective: 'Paul Morphy' });
@@ -63,4 +63,10 @@ test('renders a Lichess crazyhouse game with drops and pockets', () => {
   assert.match(svg, /Crazyhouse Blitz 3\+0/);
   assert.match(svg, /8\. P@f7/);
   assert.match(svg, /@keyframes zwp1/, 'the white pawn pocket is animated');
+});
+
+test('the variant option narrows which games are shown', () => {
+  assert.deepStrictEqual(wantedVariants(''), ['standard', 'crazyhouse']);
+  assert.deepStrictEqual(wantedVariants('Crazyhouse'), ['crazyhouse']);
+  assert.throws(() => wantedVariants('atomic'), /Unknown variant/);
 });

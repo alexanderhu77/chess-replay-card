@@ -68,6 +68,7 @@ The card refreshes every six hours, so a game you play this afternoon shows up t
 | `username`   | (required)| Your Lichess or Chess.com username                             |
 | `platform`   | `lichess` | `lichess` or `chesscom`                                        |
 | `game_id`    |           | Show a specific Lichess game instead of your latest, such as your best win |
+| `variant`    |           | Lichess only: `standard` or `crazyhouse` to show only that kind of game. Empty means whichever is most recent |
 | `max_moves`  | `60`      | Long games replay only their last N moves                      |
 | `speed`      | `1`       | Animation speed, from `0.25` to `4`                            |
 | `output_dir` | `dist`    | Where the light and dark SVGs are written                      |

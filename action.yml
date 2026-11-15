@@ -16,6 +16,10 @@ inputs:
     description: 'Optional: a specific Lichess game id to show instead of your latest game'
     required: false
     default: ''
+  variant:
+    description: 'Lichess only: show your latest game of this variant (standard or crazyhouse). Leave empty for either.'
+    required: false
+    default: ''
   output_dir:
     description: 'Directory to write the SVGs into'
     required: false

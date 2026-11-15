@@ -7,6 +7,19 @@ const cap = (s) => (s ? s[0].toUpperCase() + s.slice(1) : s);
 
 // Variants the replay engine can play through.
 const LICHESS_VARIANTS = ['standard', 'crazyhouse'];
+// Lichess "perfType" filters that select only games of one variant.
+const LICHESS_PERF_TYPES = {
+  standard: 'ultraBullet,bullet,blitz,rapid,classical,correspondence',
+  crazyhouse: 'crazyhouse',
+};
+
+/** Reads the "variant" option: '' or 'any' means every supported variant. */
+function wantedVariants(variant) {
+  const v = String(variant || '').trim().toLowerCase();
+  if (!v || v === 'any' || v === 'all') return LICHESS_VARIANTS;
+  if (!LICHESS_VARIANTS.includes(v)) throw new Error(`Unknown variant "${variant}". Use standard, crazyhouse or any.`);
+  return [v];
+}
 
 async function getJson(url, headers = {}) {
   const res = await fetch(url, { headers: { 'User-Agent': UA, ...headers } });
@@ -54,7 +67,8 @@ function normalizeLichess(g, url) {
 }
 
 /** Latest standard or crazyhouse game for a Lichess user, or a specific game by id. */
-async function fetchLichess(username, gameId) {
+async function fetchLichess(username, gameId, variant) {
+  const wanted = wantedVariants(variant);
   if (gameId) {
     const res = await getJson(`https://lichess.org/game/export/${encodeURIComponent(gameId)}?opening=true&clocks=false&evals=false`, { Accept: 'application/json' });
     const game = normalizeLichess(await res.json());
@@ -63,11 +77,12 @@ async function fetchLichess(username, gameId) {
     }
     return game;
   }
-  const url = `https://lichess.org/api/games/user/${encodeURIComponent(username)}?max=10&opening=true&clocks=false&evals=false&moves=true`;
+  const perf = wanted.length === 1 ? `&perfType=${LICHESS_PERF_TYPES[wanted[0]]}` : '';
+  const url = `https://lichess.org/api/games/user/${encodeURIComponent(username)}?max=10&opening=true&clocks=false&evals=false&moves=true${perf}`;
   const res = await getJson(url, { Accept: 'application/x-ndjson' });
   const games = (await res.text()).split('\n').filter(Boolean).map((line) => JSON.parse(line));
-  const game = games.find((g) => LICHESS_VARIANTS.includes(g.variant) && g.moves && !g.initialFen);
-  if (!game) throw new Error(`No recent standard or crazyhouse games found for Lichess user "${username}".`);
+  const game = games.find((g) => wanted.includes(g.variant) && g.moves && !g.initialFen);
+  if (!game) throw new Error(`No recent ${wanted.join(' or ')} games found for Lichess user "${username}".`);
   return normalizeLichess(game);
 }
 
@@ -115,10 +130,13 @@ async function fetchChessCom(username) {
   throw new Error(`No recent standard games found for Chess.com user "${username}".`);
 }
 
-async function fetchGame({ platform, username, gameId }) {
+async function fetchGame({ platform, username, gameId, variant }) {
   if (!username && !gameId) throw new Error('A username is required.');
-  if (platform === 'chesscom' || platform === 'chess.com') return fetchChessCom(username);
-  return fetchLichess(username, gameId);
+  if (platform === 'chesscom' || platform === 'chess.com') {
+    if (!wantedVariants(variant).includes('standard')) throw new Error('Only standard games are supported on Chess.com.');
+    return fetchChessCom(username);
+  }
+  return fetchLichess(username, gameId, variant);
 }
 
-module.exports = { fetchGame, normalizeLichess, openingFromEcoUrl };
+module.exports = { fetchGame, wantedVariants, normalizeLichess, openingFromEcoUrl };
