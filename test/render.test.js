@@ -147,3 +147,19 @@ test('crazyhouse: a promoted piece is badged and goes to the pocket as a pawn', 
   assert.match(svg, /<use class="fo\d+" href="#qw"[^>]*\/><use class="fi\d+" href="#pb"/, 'captured, it flies to the pocket as a black pawn');
   assert.doesNotMatch(render({ ...game, variant: 'standard' }), /scale\(\.45\)/, 'no badge in standard chess');
 });
+
+test('the result is hidden until the last move lands, then stays', () => {
+  const svg = render(demoGame());
+  // The scores and the "won by" line live in one group and nowhere else.
+  const hidden = svg.match(/<g class="rs">(.*?)<\/g>/)[1];
+  assert.match(hidden, />0<\/text>.*>1<\/text>.*>White won by checkmate<\/text>/);
+  assert.strictEqual(svg.split('White won by checkmate').length, 2);
+  // That group's animation plays once and holds its last frame, so the result stays on later replays.
+  assert.match(svg, /@keyframes rk\{0%,[\d.]+%\{opacity:0\}[\d.]+%,100%\{opacity:1\}\}\.rs\{animation:rk [\d.]+s linear forwards\}/);
+  // The banner over the board names the winner, then how.
+  assert.match(svg, />WHITE WINS<\/text><text [^>]*>CHECKMATE<\/text><\/g>/);
+
+  const draw = render({ ...demoGame(), moves: ['e4', 'e5'], result: '1/2-1/2', termination: 'draw', ending: 'Draw' });
+  assert.match(draw, /class="a">DRAW<\/text><\/g>/, 'an agreed draw needs only one line');
+  assert.match(draw.match(/<g class="rs">(.*?)<\/g>/)[1], />½<\/text>.*>½<\/text>/);
+});

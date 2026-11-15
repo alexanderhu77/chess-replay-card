@@ -329,15 +329,20 @@ function render(game, options = {}) {
   const pieceLayer = `<g class="pc">${pieceEls.join('')}</g>`;
 
   // End-of-game overlay
+  // The banner says who won and, on a second line, how.
   const label = END_LABEL[game.termination] || (game.result === '1/2-1/2' ? 'DRAW' : 'GAME OVER');
+  const winner = { '1-0': 'WHITE WINS', '0-1': 'BLACK WINS', '1/2-1/2': 'DRAW' }[game.result] || label;
+  const how = label === winner ? '' : label;
   css.push(
     `@keyframes eo{0%,${pct(lastT + 0.3)}%{opacity:0}${pct(lastT + 0.6)}%,${pct(holdEnd)}%{opacity:1}${pct(holdEnd + FADE)}%,100%{opacity:0}}` +
       `.eo{animation:eo ${dur} linear infinite}`
   );
-  const endBanner = (
-    `<g class="eo" opacity="0"><rect x="${S * 1.5}" y="${S * 3.3}" width="${S * 5}" height="${S * 1.4}" rx="6" fill="${pal.bg}" opacity=".88"/>` +
-      `<text x="${S * 4}" y="${S * 4 + 5}" text-anchor="middle" font-size="15" font-weight="700" letter-spacing="2" class="a">${label}</text></g>`
-  );
+  const bannerY = S * 3.05;
+  const endBanner =
+    `<g class="eo" opacity="0"><rect x="${S * 1.5}" y="${bannerY}" width="${S * 5}" height="${S * (how ? 1.9 : 1.4)}" rx="6" fill="${pal.bg}" opacity=".88"/>` +
+    `<text x="${S * 4}" y="${bannerY + 26}" text-anchor="middle" font-size="15" font-weight="700" letter-spacing="2" class="a">${winner}</text>` +
+    (how ? `<text x="${S * 4}" y="${bannerY + 45}" text-anchor="middle" font-size="10" letter-spacing="2" class="m">${how}</text>` : '') +
+    `</g>`;
   body.push(`</g>`);
 
   // Side panel
@@ -347,16 +352,19 @@ function render(game, options = {}) {
     if (game.result === '0-1') return side === 'b' ? '1' : '0';
     return '';
   };
+  // Everything that gives the result away (each player's score and the "won by" line) is
+  // collected here and kept hidden until the last move has been played.
+  const result = [];
   const playerRow = (side, y) => {
     const p = side === 'w' ? game.white : game.black;
     const isMe = me && p.name.toLowerCase() === me;
     // A name is cut to what fits between the king and the score (monospace letters are 0.6em wide).
     const nameX = PX0 + 11 * PX * KING_SCALE + 7.5;
     const maxName = Math.floor((PX0 + PANEL_W - nameX - (0.6 * SCORE_SIZE + 8)) / (0.6 * NAME_SIZE));
+    result.push(`<text x="${PX0 + PANEL_W}" y="${y}" text-anchor="end" font-size="${SCORE_SIZE}" font-weight="700" class="a">${score(side)}</text>`);
     return (
       `<use href="#k${side}" transform="translate(${PX0} ${num(y + 1 - 12 * PX * KING_SCALE)}) scale(${KING_SCALE})"/>` +
-      `<text x="${num(nameX)}" y="${y}" font-size="${NAME_SIZE}"${isMe ? ` font-weight="700"` : ''}>${esc(trunc(p.name, maxName))}</text>` +
-      `<text x="${PX0 + PANEL_W}" y="${y}" text-anchor="end" font-size="${SCORE_SIZE}" font-weight="700" class="a">${score(side)}</text>`
+      `<text x="${num(nameX)}" y="${y}" font-size="${NAME_SIZE}"${isMe ? ` font-weight="700"` : ''}>${esc(trunc(p.name, maxName))}</text>`
     );
   };
   body.push(playerRow(topSide, topNameY));
@@ -397,7 +405,7 @@ function render(game, options = {}) {
     pocketRow(bottomSide);
   }
 
-  // Middle of the panel: the current move, then the result and where the game was played.
+  // Middle of the panel: the current move, where the game was played, then the result.
   const moveY = BY + 4 * S - 11;
   if (shown.length) {
     // The current move. Each move is a line on one tall strip seen through a one-line window,
@@ -418,8 +426,13 @@ function render(game, options = {}) {
     );
   }
 
-  body.push(`<text x="${PX0}" y="${moveY + 24}" font-size="11" class="a">${esc(game.ending || '')}</text>`);
-  body.push(`<text x="${PX0}" y="${moveY + 38}" font-size="9" class="m">${esc(game.source || '')}</text>`);
+  body.push(`<text x="${PX0}" y="${moveY + 21}" font-size="9" class="m">${esc(game.source || '')}</text>`);
+  result.push(`<text x="${PX0}" y="${moveY + 39}" font-size="11" class="a">${esc(game.ending || '')}</text>`);
+
+  // The result appears as the end banner does. Its animation plays once and then holds, so on
+  // the first pass the result is a surprise and on every replay after that it stays in view.
+  css.push(`@keyframes rk{0%,${pct(lastT + 0.3)}%{opacity:0}${pct(lastT + 0.6)}%,100%{opacity:1}}.rs{animation:rk ${dur} linear forwards}`);
+  body.push(`<g class="rs">${result.join('')}</g>`);
 
   body.push(`<g transform="translate(${BX} ${BY})">${pieceLayer}${endBanner}</g>`);
 
