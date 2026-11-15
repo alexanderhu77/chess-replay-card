@@ -66,6 +66,33 @@ function normalizeLichess(g, url) {
   };
 }
 
+/**
+ * Reads newline-delimited JSON games as they arrive and returns the first one accepted,
+ * or null. Lichess sends a list of games slowly, a few dozen a second, and the newest is
+ * almost always the one wanted, so the rest of the download is abandoned once it is found.
+ */
+async function firstGame(res, accept) {
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let pending = '';
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      pending += done ? decoder.decode() : decoder.decode(value, { stream: true });
+      const lines = pending.split('\n');
+      pending = done ? '' : lines.pop();   // keep a half-received line for the next chunk
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        const game = JSON.parse(line);
+        if (accept(game)) return game;
+      }
+      if (done) return null;
+    }
+  } finally {
+    reader.cancel().catch(() => {});
+  }
+}
+
 /** Latest standard or crazyhouse game for a Lichess user, or a specific game by id. */
 async function fetchLichess(username, gameId, variant) {
   const wanted = wantedVariants(variant);
@@ -80,8 +107,7 @@ async function fetchLichess(username, gameId, variant) {
   const perf = wanted.length === 1 ? `&perfType=${LICHESS_PERF_TYPES[wanted[0]]}` : '';
   const url = `https://lichess.org/api/games/user/${encodeURIComponent(username)}?max=10&opening=true&clocks=false&evals=false&moves=true${perf}`;
   const res = await getJson(url, { Accept: 'application/x-ndjson' });
-  const games = (await res.text()).split('\n').filter(Boolean).map((line) => JSON.parse(line));
-  const game = games.find((g) => wanted.includes(g.variant) && g.moves && !g.initialFen);
+  const game = await firstGame(res, (g) => wanted.includes(g.variant) && g.moves && !g.initialFen);
   if (!game) throw new Error(`No recent ${wanted.join(' or ')} games found for Lichess user "${username}".`);
   return normalizeLichess(game);
 }
@@ -139,4 +165,4 @@ async function fetchGame({ platform, username, gameId, variant }) {
   return fetchLichess(username, gameId, variant);
 }
 
-module.exports = { fetchGame, wantedVariants, normalizeLichess, openingFromEcoUrl };
+module.exports = { fetchGame, firstGame, wantedVariants, normalizeLichess, openingFromEcoUrl };

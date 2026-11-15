@@ -5,7 +5,7 @@ const assert = require('node:assert');
 const { render } = require('../src/render');
 const { demoGame } = require('../src/demo');
 const { parsePgn } = require('../src/pgn');
-const { normalizeLichess, openingFromEcoUrl, wantedVariants } = require('../src/sources');
+const { firstGame, normalizeLichess, openingFromEcoUrl, wantedVariants } = require('../src/sources');
 
 test('renders the Opera Game ending in checkmate', () => {
   const svg = render(demoGame(), { palette: 'dark', perspective: 'Paul Morphy' });
@@ -64,9 +64,12 @@ test('renders a Lichess crazyhouse game with drops and pockets', () => {
   assert.match(svg, /8\. P@f7/);
   assert.match(svg, /@keyframes zwp1/, 'the white pawn pocket is animated');
   // 5. exd5: the black pawn flies from d5 to white's pawn pocket, turning white on the way.
-  assert.match(svg, /@keyframes fl0\{[^}]*\{transform:translate\(96px,96px\) scale\(1\);opacity:0\}/);
-  assert.match(svg, /<g class="fl0" opacity="0"><use class="fo"[^>]*href="#pb"[^>]*\/><use class="fi"[^>]*href="#pw"[^>]*\/><\/g>/);
-  assert.doesNotMatch(render(demoGame()), /class="f[io]"/, 'standard games have no flights to a pocket');
+  assert.match(svg, /@keyframes fl0\{0%\{transform:translate\(96px,96px\) scale\(1\);opacity:0;/);
+  assert.match(svg, /<g class="fl0" opacity="0"><use class="fo0" href="#pb"[^>]*\/><use class="fi0" href="#pw"[^>]*\/><\/g>/);
+  // 6. Nxf7 takes another black pawn, which re-uses the same flyer from f7.
+  assert.match(svg.match(/@keyframes fl0\{.*?\}\.fl0/)[0], /translate\(160px,32px\) scale\(1\);opacity:1/);
+  assert.strictEqual(svg.match(/<g class="fl\d+"/g).length, 3, 'four captures of three kinds share three flyers');
+  assert.doesNotMatch(render(demoGame()), /class="fl\d+"/, 'standard games have no flights to a pocket');
   assert.match(svg, /translate\(281px,213\.6px\) scale\(0\.6\);opacity:1\}[\d.]+%\{transform:translate\(160px,32px\) scale\(1\)/, 'the dropped pawn slides from the pocket to f7');
 });
 
@@ -89,4 +92,35 @@ test('the check highlight clears as the king starts to move out of check', () =>
   const blocked = render({ ...game, moves: ['e4', 'd5', 'Bb5+', 'c6'] });
   const blockStart = blocked.match(/@keyframes hf\{.*?([\d.]+)%\{opacity:\.5;transform:translate\(64px,32px\)\}/)[1];
   assert.ok(!blocked.match(/@keyframes ck\{(.*?)\}\.ck/)[1].includes(`}${blockStart}%{opacity:0}`));
+});
+
+test('the Lichess download stops at the first usable game', async () => {
+  const enc = new TextEncoder();
+  // A response that sends two games, the second split across chunks, and then never finishes.
+  let cancelled = false;
+  const body = new ReadableStream({
+    start(controller) {
+      controller.enqueue(enc.encode('{"id":"a","variant":"atomic"}\n{"id":"b","vari'));
+      controller.enqueue(enc.encode('ant":"standard"}\n{"id":"c","variant":"standard"}\n'));
+    },
+    cancel() { cancelled = true; },
+  });
+  const game = await firstGame(new Response(body), (g) => g.variant === 'standard');
+  assert.strictEqual(game.id, 'b');
+  assert.ok(cancelled, 'the rest of the download is abandoned');
+
+  const none = await firstGame(new Response('{"id":"a","variant":"atomic"}\n'), (g) => g.variant === 'standard');
+  assert.strictEqual(none, null);
+  const noNewline = await firstGame(new Response('{"id":"z","variant":"standard"}'), () => true);
+  assert.strictEqual(noNewline.id, 'z', 'a final line without a newline still counts');
+});
+
+test('only pieces that move or change are animated, and the move text is one animation', () => {
+  const svg = render(demoGame());
+  const animated = svg.match(/<g class="p\d+"/g).length;
+  const still = svg.match(/<g transform="translate\(\d+ \d+\)"><use href="#[a-z]{2}"/g).length;
+  assert.strictEqual(animated + still, 32, 'every piece is drawn');
+  assert.ok(still >= 8, 'pieces that never move have no animation');
+  assert.strictEqual(svg.match(/class="mv"/g).length, 1, 'one scrolling strip shows the current move');
+  assert.doesNotMatch(svg, /animation-delay/);
 });

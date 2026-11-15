@@ -223,6 +223,17 @@ function render(game, options = {}) {
   );
   const pieceEls = [];
   for (const tr of tracks.values()) {
+    // A browser re-evaluates every running animation on every frame, even while nothing moves,
+    // so a piece is only animated in the ways it needs: one that stays put all game gets none.
+    const travels = tr.drop || tr.moves.length > 0;
+    const fades = tr.appear !== null || tr.vanish !== null;
+    const piece =
+      `transform="translate(${sqX(tr.last)} ${sqY(tr.last)})"${tr.vanish === null ? '' : ' opacity="0"'}>` +
+      `<use href="#${tr.type}${tr.color}" x="${SPRITE_DX}" y="${SPRITE_DY}"/></g>`;
+    if (!travels && !fades) {
+      pieceEls.push(`<g ${piece}`);
+      continue;
+    }
     // Merge transform and opacity keyframes so each percentage appears once.
     const frames = new Map();
     const set = (sec, prop, value) => {
@@ -235,19 +246,21 @@ function render(game, options = {}) {
     // the board while growing to full size. Its keyframes all carry a scale so they interpolate.
     const on = tr.drop ? (sq) => `${pos(sq)} scale(1)` : pos;
     const home = tr.drop ? pocketPos(tr.color, tr.type) : pos(tr.sq0);
-    set(0, 'transform', home);
-    if (tr.drop) {
-      set(tr.appear, 'transform', home);
-      set(tr.appear + MOVE, 'transform', on(tr.sq0));
+    if (travels) {
+      set(0, 'transform', home);
+      if (tr.drop) {
+        set(tr.appear, 'transform', home);
+        set(tr.appear + MOVE, 'transform', on(tr.sq0));
+      }
+      for (const mv of tr.moves) {
+        set(mv.t, 'transform', on(mv.from));
+        set(mv.t + MOVE, 'transform', on(mv.to));
+      }
+      set(after, 'transform', on(tr.last));
+      set('end', 'transform', home);
     }
-    for (const mv of tr.moves) {
-      set(mv.t, 'transform', on(mv.from));
-      set(mv.t + MOVE, 'transform', on(mv.to));
-    }
-    set(after, 'transform', on(tr.last));
-    set('end', 'transform', home);
     // Promoted and dropped pieces appear mid-game; captured ones vanish. A piece can do both.
-    if (tr.appear !== null || tr.vanish !== null) {
+    if (fades) {
       const born = tr.appear === null ? 1 : 0;
       set(0, 'opacity', born);
       if (tr.appear !== null) { set(tr.appear - 0.01, 'opacity', 0); set(tr.appear, 'opacity', 1); }
@@ -264,36 +277,39 @@ function render(game, options = {}) {
       .map(([k, v]) => `${k}%{${Object.entries(v).map(([prop, val]) => `${prop}:${val}`).join(';')}}`)
       .join('');
     css.push(`@keyframes p${tr.id}{${frameCss}}.p${tr.id}{animation:p${tr.id} ${dur} ease-in-out infinite}`);
-    const finalVisible = tr.vanish === null;
-    pieceEls.push(
-      `<g class="p${tr.id}" transform="translate(${sqX(tr.last)} ${sqY(tr.last)})"${finalVisible ? '' : ' opacity="0"'}>` +
-        `<use href="#${tr.type}${tr.color}" x="${SPRITE_DX}" y="${SPRITE_DY}"/></g>`
-    );
+    pieceEls.push(`<g class="p${tr.id}" ${piece}`);
   }
   // Crazyhouse captures: a copy of the captured piece flies from its square to the capturer's
   // pocket, shrinking and changing sides on the way. Drawn after the pieces, so it passes over them.
-  if (flights.length) {
-    // The colour change is shared by every flight and shifted to its start with animation-delay:
-    // the new sprite fades in over the first half, then the old one fades out beneath it.
-    const p = (sec) => num((sec / D) * 100);
-    const [half, done, hold, back] = [p(FLY / 2), p(FLY), p(FLY + 0.1), p(FLY + 0.2)];
-    css.push(
-      `@keyframes fo{0%,${half}%{opacity:1}${done}%,${hold}%{opacity:0}${back}%,100%{opacity:1}}` +
-        `@keyframes fi{0%{opacity:0}${half}%,${hold}%{opacity:1}${back}%,100%{opacity:0}}` +
-        `.fo{animation:fo ${dur} linear infinite}.fi{animation:fi ${dur} linear infinite}`
-    );
+  // Flights never overlap, so every capture of one kind (say, a black knight) re-uses a single
+  // flyer instead of getting its own: far fewer animations for the browser to keep running.
+  const HOLD = ';animation-timing-function:step-end';   // stay as is until the next keyframe, then jump
+  const flyers = new Map();
+  for (const f of flights) {
+    const kind = f.sprite + f.as;
+    if (!flyers.has(kind)) flyers.set(kind, []);
+    flyers.get(kind).push(f);
   }
-  flights.forEach((f, n) => {
-    const from = `${pos(f.sq)} scale(1)`;
-    const to = pocketPos(f.side, f.as);
+  [...flyers.values()].forEach((kind, n) => {
+    let to = `${pos(kind[0].sq)} scale(1)`;
+    let fly = `0%{transform:${to};opacity:0${HOLD}}`;
+    let oldSprite = `0%{opacity:1${HOLD}}`;   // the captured piece, fading out over the second half
+    let newSprite = `0%{opacity:0${HOLD}}`;   // what it becomes in the pocket, fading in over the first half
+    for (const f of kind) {
+      const [start, half, end, gone] = [pct(f.t), pct(f.t + FLY / 2), pct(f.t + FLY), pct(f.t + FLY + 0.01)];
+      to = pocketPos(f.side, f.as);
+      fly += `${start}%{transform:${pos(f.sq)} scale(1);opacity:1}${end}%{transform:${to};opacity:1${HOLD}}${gone}%{transform:${to};opacity:0${HOLD}}`;
+      newSprite += `${start}%{opacity:0}${half}%{opacity:1${HOLD}}${gone}%{opacity:0${HOLD}}`;
+      oldSprite += `${half}%{opacity:1}${end}%{opacity:0${HOLD}}${gone}%{opacity:1${HOLD}}`;
+    }
     css.push(
-      `@keyframes fl${n}{0%,${pct(f.t - 0.01)}%{transform:${from};opacity:0}${pct(f.t)}%{transform:${from};opacity:1}` +
-        `${pct(f.t + FLY)}%{transform:${to};opacity:1}${pct(f.t + FLY + 0.01)}%,100%{transform:${to};opacity:0}}` +
-        `.fl${n}{animation:fl${n} ${dur} ease-in-out infinite}`
+      `@keyframes fl${n}{${fly}100%{transform:${to};opacity:0}}.fl${n}{animation:fl${n} ${dur} ease-in-out infinite}` +
+        `@keyframes fo${n}{${oldSprite}100%{opacity:1}}.fo${n}{animation:fo${n} ${dur} linear infinite}` +
+        `@keyframes fi${n}{${newSprite}100%{opacity:0}}.fi${n}{animation:fi${n} ${dur} linear infinite}`
     );
-    const sprite = (cls, id) =>
-      `<use class="${cls}" style="animation-delay:${num(-(D - f.t))}s" href="#${id}" x="${SPRITE_DX}" y="${SPRITE_DY}"/>`;
-    pieceEls.push(`<g class="fl${n}" opacity="0">${sprite('fo', f.sprite)}${sprite('fi', f.as + f.side)}</g>`);
+    const { sprite, as, side } = kind[0];
+    const use = (cls, id) => `<use class="${cls}" href="#${id}" x="${SPRITE_DX}" y="${SPRITE_DY}"/>`;
+    pieceEls.push(`<g class="fl${n}" opacity="0">${use(`fo${n}`, sprite)}${use(`fi${n}`, as + side)}</g>`);
   });
 
   // Pieces and the end banner are drawn last, above the side panel, so that pieces stay on
@@ -382,18 +398,25 @@ function render(game, options = {}) {
   }
 
   const moveY = BY + 4 * S + 18;
-  const stepPct = num((STEP / D) * 100);
-  css.push(`@keyframes mv{0%{opacity:1}${stepPct}%,100%{opacity:0}}.mv{animation:mv ${dur} steps(1,end) infinite;opacity:0}`);
-  const lastLen = num(((STEP + END_HOLD) / D) * 100);
-  css.push(`@keyframes ml{0%{opacity:1}${lastLen}%,100%{opacity:0}}.ml{animation:ml ${dur} steps(1,end) infinite}`);
-  const moveTexts = shown.map((ply, i) => {
-    const label = ply.color === 'w' ? `${ply.moveNumber}. ${ply.san}` : `${ply.moveNumber}… ${ply.san}`;
-    const delay = num(-(D - tPly(i)));
-    const isLast = i === shown.length - 1;
-    return `<text class="${isLast ? 'ml' : 'mv'}" style="animation-delay:${delay}s" x="${PX0}" y="${moveY}" font-size="22" font-weight="700"${isLast ? '' : ' opacity="0"'}>${esc(label)}</text>`;
-  });
   body.push(`<text x="${PX0}" y="${moveY - 28}" font-size="10" class="m">Move</text>`);
-  body.push(moveTexts.join(''));
+  if (shown.length) {
+    // The current move. Each move is a line on one tall strip seen through a one-line window,
+    // and a single stepped animation scrolls the strip: one running animation, not one per move.
+    const LINE = 40;
+    const scroll = (lines) => `translate(0px,${-lines * LINE}px)`;
+    let mv = `0%{transform:${scroll(0)}}`;   // the strip starts on an empty line, before the first move
+    const lines = shown.map((ply, i) => {
+      mv += `${pct(tPly(i))}%{transform:${scroll(i + 1)}}`;
+      const label = ply.color === 'w' ? `${ply.moveNumber}. ${ply.san}` : `${ply.moveNumber}… ${ply.san}`;
+      return `<text x="${PX0}" y="${moveY + (i + 1) * LINE}" font-size="22" font-weight="700">${esc(label)}</text>`;
+    });
+    mv += `${pct(tPly(shown.length - 1) + STEP + END_HOLD)}%,100%{transform:${scroll(0)}}`;
+    css.push(`@keyframes mv{${mv}}.mv{animation:mv ${dur} steps(1,end) infinite}`);
+    body.push(
+      `<clipPath id="mw"><rect x="${PX0 - 2}" y="${moveY - 24}" width="${PANEL_W + 4}" height="32"/></clipPath>` +
+        `<g clip-path="url(#mw)"><g class="mv" transform="translate(0 ${-shown.length * LINE})">${lines.join('')}</g></g>`
+    );
+  }
 
   const progress = startPly > 0 ? `Last ${Math.ceil(shown.length / 2)} of ${Math.ceil(plies.length / 2)} moves` : `${Math.ceil(plies.length / 2)} moves`;
   body.push(`<text x="${PX0}" y="${moveY + 20}" font-size="10" class="m">${esc(progress)}</text>`);

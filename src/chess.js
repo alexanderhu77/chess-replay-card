@@ -50,7 +50,8 @@ function fromFEN(fen, variant = 'standard') {
 
 function clone(pos) {
   return {
-    board: pos.board.map((p) => (p ? { ...p } : null)),
+    // Piece objects are never modified once created, so positions can share them.
+    board: pos.board.slice(),
     turn: pos.turn,
     castling: { ...pos.castling },
     ep: pos.ep,
@@ -195,27 +196,33 @@ function inCheck(pos) {
   return k >= 0 && attacked(pos.board, k, other(pos.turn));
 }
 
-function legalMoves(pos) {
-  return pseudoMoves(pos).filter((m) => {
-    const next = makeMove(pos, m);
-    const k = kingSquare(next.board, pos.turn);
-    return !attacked(next.board, k, next.turn);
-  });
+/** A pseudo-legal move is legal if it does not leave the mover's own king attacked. */
+function isLegal(pos, m) {
+  const next = makeMove(pos, m);
+  return !attacked(next.board, kingSquare(next.board, pos.turn), next.turn);
 }
+
+function legalMoves(pos) {
+  return pseudoMoves(pos).filter((m) => isLegal(pos, m));
+}
+
+/** Stops at the first legal move found, which is all that telling mate from check needs. */
+const hasLegalMove = (pos) => pseudoMoves(pos).some((m) => isLegal(pos, m));
 
 /** Finds the legal move that a SAN string such as "Nbd7", "exd6", "e8=Q+" or the drop "N@f3" describes. */
 function moveFromSan(pos, san) {
   const clean = san.replace(/[+#!?]+$/, '').replace(/0/g, 'O');
-  const legal = legalMoves(pos);
+  // Match the notation first and test legality only for the few moves that fit it.
+  const moves = pseudoMoves(pos);
   if (clean === 'O-O' || clean === 'O-O-O') {
-    const m = legal.find((x) => x.castle === (clean === 'O-O' ? 'K' : 'Q'));
+    const m = moves.find((x) => x.castle === (clean === 'O-O' ? 'K' : 'Q') && isLegal(pos, x));
     if (!m) throw new Error(`Castling "${san}" is not legal here`);
     return m;
   }
   const dropMt = clean.match(/^([PNBRQ])?@([a-h][1-8])$/);
   if (dropMt) {
     const type = (dropMt[1] || 'P').toLowerCase();
-    const m = legal.find((x) => x.drop && x.piece === type && x.to === sqIndex(dropMt[2]));
+    const m = moves.find((x) => x.drop && x.piece === type && x.to === sqIndex(dropMt[2]) && isLegal(pos, x));
     if (!m) throw new Error(`The drop "${san}" is not legal here`);
     return m;
   }
@@ -225,11 +232,12 @@ function moveFromSan(pos, san) {
   const type = pc ? pc.toLowerCase() : 'p';
   const toSq = sqIndex(to);
   const want = promo ? promo.toLowerCase() : null;
-  const found = legal.filter((m) =>
+  const found = moves.filter((m) =>
     !m.drop && m.piece === type && m.to === toSq &&
     (!ff || (m.from & 7) === FILES.indexOf(ff)) &&
     (!fr || m.from >> 3 === Number(fr) - 1) &&
-    (m.promo || null) === want
+    (m.promo || null) === want &&
+    isLegal(pos, m)
   );
   if (found.length !== 1) throw new Error(`The move "${san}" is ${found.length ? 'ambiguous' : 'not legal'} here`);
   return found[0];
@@ -254,7 +262,7 @@ function replay(sanMoves, fen = START_FEN, variant = 'standard') {
       ? { pawnId: pos.board[m.from].id, id: next.board[m.to].id, type: m.promo, color: pos.turn, square: m.to }
       : null;
     const check = inCheck(next);
-    const mate = check && legalMoves(next).length === 0;
+    const mate = check && !hasLegalMove(next);
     plies.push({
       index: i,
       san,
