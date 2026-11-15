@@ -32,6 +32,9 @@ inputs:
     description: 'Only replay the last N moves of long games'
     required: false
     default: '60'
+outputs:
+  game_url:
+    description: 'Link to the featured game, opened from the same side of the board as the card'
 runs:
   using: 'node24'
   main: 'src/action.js'

@@ -156,6 +156,19 @@ async function fetchChessCom(username) {
   throw new Error(`No recent standard games found for Chess.com user "${username}".`);
 }
 
+/**
+ * A link to the game's own page, opened from the same side of the board as the card:
+ * the given player's side, or White's if they did not play in it. Lichess takes the side
+ * from the address (/white or /black); other sites get the plain game link.
+ */
+function gameLink(game, perspective) {
+  if (!game.url) return null;
+  if (game.source !== 'lichess.org') return game.url;
+  const me = String(perspective || '').toLowerCase();
+  const asBlack = me !== '' && game.black.name.toLowerCase() === me;
+  return `${game.url}/${asBlack ? 'black' : 'white'}`;
+}
+
 async function fetchGame({ platform, username, gameId, variant }) {
   if (!username && !gameId) throw new Error('A username is required.');
   if (platform === 'chesscom' || platform === 'chess.com') {
@@ -165,4 +178,4 @@ async function fetchGame({ platform, username, gameId, variant }) {
   return fetchLichess(username, gameId, variant);
 }
 
-module.exports = { fetchGame, firstGame, wantedVariants, normalizeLichess, openingFromEcoUrl };
+module.exports = { fetchGame, firstGame, gameLink, wantedVariants, normalizeLichess, openingFromEcoUrl };

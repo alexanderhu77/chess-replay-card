@@ -5,7 +5,7 @@ const assert = require('node:assert');
 const { render } = require('../src/render');
 const { demoGame } = require('../src/demo');
 const { parsePgn } = require('../src/pgn');
-const { firstGame, normalizeLichess, openingFromEcoUrl, wantedVariants } = require('../src/sources');
+const { firstGame, gameLink, normalizeLichess, openingFromEcoUrl, wantedVariants } = require('../src/sources');
 
 test('renders the Opera Game ending in checkmate', () => {
   const svg = render(demoGame(), { palette: 'dark', perspective: 'Paul Morphy' });
@@ -172,4 +172,19 @@ test('the result is hidden until the last move lands, then stays', () => {
   const draw = render({ ...demoGame(), moves: ['e4', 'e5'], result: '1/2-1/2', termination: 'draw', ending: 'Draw' });
   assert.match(draw, /class="a">DRAW<\/text><\/g>/, 'an agreed draw needs only one line');
   assert.match(draw.match(/<g class="rs">(.*?)<\/g>/)[1], />½<\/text>.*>½<\/text>/);
+});
+
+test('the game link opens from the same side of the board as the card', () => {
+  const game = normalizeLichess({
+    id: 'abc12345', speed: 'blitz', status: 'resign', winner: 'black',
+    players: { white: { user: { name: 'Alice' } }, black: { user: { name: 'Bob' } } }, moves: 'e4 e5',
+  });
+  assert.strictEqual(gameLink(game, 'alice'), 'https://lichess.org/abc12345/white');
+  assert.strictEqual(gameLink(game, 'BOB'), 'https://lichess.org/abc12345/black');
+  assert.strictEqual(gameLink(game, 'someone-else'), 'https://lichess.org/abc12345/white', 'a spectator sees White at the bottom, as on the card');
+  assert.strictEqual(gameLink(game, ''), 'https://lichess.org/abc12345/white');
+  // The link and the card agree on which way round the board is.
+  assert.match(render(game, { perspective: 'bob' }), />h<\/text>/);
+  assert.strictEqual(gameLink({ ...game, source: 'chess.com', url: 'https://www.chess.com/game/live/1' }, 'bob'), 'https://www.chess.com/game/live/1');
+  assert.strictEqual(gameLink(demoGame(), 'Paul Morphy'), null, 'no link for a game with no page');
 });

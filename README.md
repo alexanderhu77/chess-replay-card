@@ -73,6 +73,39 @@ The card refreshes every six hours, so a game you play this afternoon shows up t
 | `speed`      | `1`       | Animation speed, from `0.25` to `4`                            |
 | `output_dir` | `dist`    | Where the light and dark SVGs are written                      |
 
+## Make the card open the game
+
+The action also gives your workflow `game_url`, a link to the featured game. For Lichess games it opens from the same side of the board as the card. To make the card clickable:
+
+1. In your profile `README.md`, wrap the card in a link. The address can be anything to start with; the workflow fills it in.
+
+```html
+<a href="https://lichess.org" title="Open this game on Lichess">
+<picture>
+  ...
+</picture>
+</a>
+```
+
+2. In the workflow, add `- uses: actions/checkout@v7` as the first step, give the card step `id: card`, and add this as the last step:
+
+```yaml
+      - name: Point the card's link at the featured game
+        env:
+          GAME_URL: ${{ steps.card.outputs.game_url }}
+        run: |
+          if [ -z "$GAME_URL" ]; then exit 0; fi
+          sed -i -E "s#<a href=\"[^\"]*\" title=\"Open this game on Lichess\">#<a href=\"${GAME_URL}\" title=\"Open this game on Lichess\">#" README.md
+          if git diff --quiet -- README.md; then exit 0; fi
+          git -c user.name="github-actions[bot]" \
+              -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+              commit -q -m "Link the chess card to the featured game" -- README.md
+          git pull -q --rebase
+          git push -q
+```
+
+The workflow then commits a one-line change to your README whenever a new game is featured.
+
 ## Run it locally
 
 ```bash

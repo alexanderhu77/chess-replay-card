@@ -4,7 +4,7 @@
 const fs = require('fs');
 const path = require('path');
 const { render } = require('./src/render');
-const { fetchGame } = require('./src/sources');
+const { fetchGame, gameLink } = require('./src/sources');
 const { demoGame } = require('./src/demo');
 
 const HELP = `chess-replay-card: turn your latest chess game into an animated SVG replay
@@ -54,6 +54,8 @@ async function main() {
     fs.writeFileSync(path.join(args.out, name), svg);
     console.log(`Wrote ${path.join(args.out, name)} (${(svg.length / 1024).toFixed(1)} KB)`);
   }
+  const link = gameLink(game, perspective);
+  if (link) console.log(`Game link: ${link}`);
 }
 
 main().catch((err) => {
