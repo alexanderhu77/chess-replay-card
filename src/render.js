@@ -85,6 +85,10 @@ function render(game, options = {}) {
   // Timeline (seconds)
   const STEP = 0.9 / speed;
   const MOVE = Math.min(0.35, STEP * 0.6);
+  // A captured crazyhouse piece flies to the capturer's pocket. It leaves its square halfway
+  // through the capturing move and takes a quick flight, arriving just as the capturer lands.
+  const FLY_WAIT = MOVE * 0.5;
+  const FLY = MOVE * 0.55;
   const START = 1.0;
   const END_HOLD = 3.2;
   const tPly = (i) => START + i * STEP;
@@ -96,6 +100,7 @@ function render(game, options = {}) {
   const dur = `${num(D)}s`;
 
   // Build per-piece tracks
+  const flights = [];   // crazyhouse captures, flown to the capturer's pocket
   const tracks = new Map();
   startPos.board.forEach((p, sq) => {
     if (p) tracks.set(p.id, { ...p, sq0: sq, moves: [], appear: null, vanish: null, last: sq });
@@ -107,7 +112,20 @@ function render(game, options = {}) {
       tr.moves.push({ t, from: mv.from, to: mv.to });
       tr.last = mv.to;
     }
-    if (ply.captured !== null) tracks.get(ply.captured).vanish = t + MOVE;
+    if (ply.captured !== null) {
+      const victim = tracks.get(ply.captured);
+      if (startPos.pockets) {
+        // Crazyhouse: the captured piece leaves its square and flies to the capturer's pocket.
+        // The pocket tells us what it becomes there (a promoted piece turns back into a pawn).
+        const [before, now] = [ply.before.pockets[ply.color], ply.after.pockets[ply.color]];
+        const as = [...POCKET_TYPES].find((type) => now[type] > before[type]);
+        flights.push({ t: t + FLY_WAIT, sq: victim.last, sprite: victim.type + victim.color, side: ply.color, as });
+        victim.vanish = t + FLY_WAIT;
+        victim.snap = true;
+      } else {
+        victim.vanish = t + MOVE;
+      }
+    }
     if (ply.drop) {
       const d = ply.drop;
       tracks.set(d.id, { type: d.type, color: d.color, id: d.id, sq0: d.square, moves: [], appear: t, vanish: null, last: d.square, drop: true });
@@ -190,6 +208,11 @@ function render(game, options = {}) {
 
   // Pieces
   const pos = (sq) => `translate(${sqX(sq)}px,${sqY(sq)}px)`;
+  // The transform that puts a board piece exactly over a pocket piece in the side panel.
+  const pocketPos = (side, type) => {
+    const [x, y] = pocketXY(side, type);
+    return `translate(${num(x - BX - SPRITE_DX * POCKET_SCALE)}px,${num(y - BY - SPRITE_DY * POCKET_SCALE)}px) scale(${POCKET_SCALE})`;
+  };
   css.push(
     `@keyframes pc{0%{opacity:0}${pct(START - 0.6)}%,${pct(holdEnd)}%{opacity:1}${pct(holdEnd + FADE)}%,100%{opacity:0}}` +
       `.pc{animation:pc ${dur} linear infinite}`
@@ -207,13 +230,7 @@ function render(game, options = {}) {
     // A dropped piece waits, hidden, on its pocket slot in the side panel, then slides onto
     // the board while growing to full size. Its keyframes all carry a scale so they interpolate.
     const on = tr.drop ? (sq) => `${pos(sq)} scale(1)` : pos;
-    let home = pos(tr.sq0);
-    if (tr.drop) {
-      const [x, y] = pocketXY(tr.color, tr.type);
-      const hx = num(x - BX - SPRITE_DX * POCKET_SCALE);
-      const hy = num(y - BY - SPRITE_DY * POCKET_SCALE);
-      home = `translate(${hx}px,${hy}px) scale(${POCKET_SCALE})`;
-    }
+    const home = tr.drop ? pocketPos(tr.color, tr.type) : pos(tr.sq0);
     set(0, 'transform', home);
     if (tr.drop) {
       set(tr.appear, 'transform', home);
@@ -230,7 +247,11 @@ function render(game, options = {}) {
       const born = tr.appear === null ? 1 : 0;
       set(0, 'opacity', born);
       if (tr.appear !== null) { set(tr.appear - 0.01, 'opacity', 0); set(tr.appear, 'opacity', 1); }
-      if (tr.vanish !== null) { set(tr.vanish - 0.02, 'opacity', 1); set(tr.vanish + 0.12, 'opacity', 0); }
+      if (tr.vanish !== null) {
+        // A captured piece fades out, unless a flying copy takes over from it at once (crazyhouse).
+        set(tr.vanish - (tr.snap ? 0.01 : 0.02), 'opacity', 1);
+        set(tr.vanish + (tr.snap ? 0 : 0.12), 'opacity', 0);
+      }
       set(after, 'opacity', tr.vanish === null ? 1 : 0);
       set('end', 'opacity', born);
     }
@@ -245,8 +266,34 @@ function render(game, options = {}) {
         `<use href="#${tr.type}${tr.color}" x="${SPRITE_DX}" y="${SPRITE_DY}"/></g>`
     );
   }
-  // Pieces and the end banner are drawn last, above the side panel, so that a dropped
-  // piece stays on top while it slides in from its pocket.
+  // Crazyhouse captures: a copy of the captured piece flies from its square to the capturer's
+  // pocket, shrinking and changing sides on the way. Drawn after the pieces, so it passes over them.
+  if (flights.length) {
+    // The colour change is shared by every flight and shifted to its start with animation-delay:
+    // the new sprite fades in over the first half, then the old one fades out beneath it.
+    const p = (sec) => num((sec / D) * 100);
+    const [half, done, hold, back] = [p(FLY / 2), p(FLY), p(FLY + 0.1), p(FLY + 0.2)];
+    css.push(
+      `@keyframes fo{0%,${half}%{opacity:1}${done}%,${hold}%{opacity:0}${back}%,100%{opacity:1}}` +
+        `@keyframes fi{0%{opacity:0}${half}%,${hold}%{opacity:1}${back}%,100%{opacity:0}}` +
+        `.fo{animation:fo ${dur} linear infinite}.fi{animation:fi ${dur} linear infinite}`
+    );
+  }
+  flights.forEach((f, n) => {
+    const from = `${pos(f.sq)} scale(1)`;
+    const to = pocketPos(f.side, f.as);
+    css.push(
+      `@keyframes fl${n}{0%,${pct(f.t - 0.01)}%{transform:${from};opacity:0}${pct(f.t)}%{transform:${from};opacity:1}` +
+        `${pct(f.t + FLY)}%{transform:${to};opacity:1}${pct(f.t + FLY + 0.01)}%,100%{transform:${to};opacity:0}}` +
+        `.fl${n}{animation:fl${n} ${dur} ease-in-out infinite}`
+    );
+    const sprite = (cls, id) =>
+      `<use class="${cls}" style="animation-delay:${num(-(D - f.t))}s" href="#${id}" x="${SPRITE_DX}" y="${SPRITE_DY}"/>`;
+    pieceEls.push(`<g class="fl${n}" opacity="0">${sprite('fo', f.sprite)}${sprite('fi', f.as + f.side)}</g>`);
+  });
+
+  // Pieces and the end banner are drawn last, above the side panel, so that pieces stay on
+  // top while they travel between the board and a pocket.
   const pieceLayer = `<g class="pc">${pieceEls.join('')}</g>`;
 
   // End-of-game overlay
@@ -286,13 +333,13 @@ function render(game, options = {}) {
     const reset = holdEnd + FADE + 0.05;
     const pocketRow = (side) => {
       [...POCKET_TYPES].forEach((type) => {
-        // Count over time: a dropped piece leaves the pocket as it starts to slide, captures arrive when the move ends.
+        // Count over time: a dropped piece leaves the pocket as it starts to slide, a captured one is added when it flies in.
         const first = startPos.pockets[side][type];
         const changes = [[0, first]];
         let count = first;
         shown.forEach((ply, i) => {
           const c = ply.after.pockets[side][type];
-          if (c !== count) changes.push([ply.drop ? tPly(i) : tPly(i) + MOVE, c]);
+          if (c !== count) changes.push([ply.drop ? tPly(i) : tPly(i) + FLY_WAIT + FLY, c]);
           count = c;
         });
         changes.push([reset, first]);

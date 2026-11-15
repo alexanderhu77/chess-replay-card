@@ -63,6 +63,10 @@ test('renders a Lichess crazyhouse game with drops and pockets', () => {
   assert.match(svg, /Crazyhouse Blitz 3\+0/);
   assert.match(svg, /8\. P@f7/);
   assert.match(svg, /@keyframes zwp1/, 'the white pawn pocket is animated');
+  // 5. exd5: the black pawn flies from d5 to white's pawn pocket, turning white on the way.
+  assert.match(svg, /@keyframes fl0\{[^}]*\{transform:translate\(96px,96px\) scale\(1\);opacity:0\}/);
+  assert.match(svg, /<g class="fl0" opacity="0"><use class="fo"[^>]*href="#pb"[^>]*\/><use class="fi"[^>]*href="#pw"[^>]*\/><\/g>/);
+  assert.doesNotMatch(render(demoGame()), /class="f[io]"/, 'standard games have no flights to a pocket');
   assert.match(svg, /translate\(281px,213\.6px\) scale\(0\.6\);opacity:1\}[\d.]+%\{transform:translate\(160px,32px\) scale\(1\)/, 'the dropped pawn slides from the pocket to f7');
 });
 
