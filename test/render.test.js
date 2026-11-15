@@ -139,11 +139,10 @@ test('the Lichess download stops at the first usable game', async () => {
 test('only pieces that move or change are animated, and the move text is one animation', () => {
   const svg = render(demoGame());
   const animated = svg.match(/<g class="p\d+"/g).length;
-  const still = svg.match(/<g transform="translate\(\d+ \d+\)"><use href="#[a-z]{2}"/g).length;
+  const still = svg.match(/<g transform="translate\(\d+ \d+\)"><use class="rn"/g).length;
   assert.strictEqual(animated + still, 32, 'every piece is drawn');
   assert.ok(still >= 8, 'pieces that never move have no animation');
   assert.strictEqual(svg.match(/class="mv"/g).length, 1, 'one scrolling strip shows the current move');
-  assert.doesNotMatch(svg, /animation-delay/);
 });
 
 test('crazyhouse: a promoted piece is badged and goes to the pocket as a pawn', () => {
@@ -165,7 +164,7 @@ test('the result is hidden until the last move lands, then stays', () => {
   assert.match(hidden, />0<\/text>.*>1<\/text>.*>White won by checkmate<\/text>/);
   assert.strictEqual(svg.split('White won by checkmate').length, 2);
   // That group's animation plays once and holds its last frame, so the result stays on later replays.
-  assert.match(svg, /@keyframes rk\{0%,[\d.]+%\{opacity:0\}[\d.]+%,100%\{opacity:1\}\}\.rs\{animation:rk [\d.]+s linear forwards\}/);
+  assert.match(svg, /@keyframes rk\{0%,[\d.]+%\{opacity:0\}[\d.]+%,100%\{opacity:1\}\}\.rs\{animation:rk [\d.]+s linear 3\.65s both\}/);
   // The banner over the board names the winner, then how.
   assert.match(svg, />WHITE WINS<\/text><text [^>]*>CHECKMATE<\/text><\/g>/);
 
@@ -187,4 +186,31 @@ test('the game link opens from the same side of the board as the card', () => {
   assert.match(render(game, { perspective: 'bob' }), />h<\/text>/);
   assert.strictEqual(gameLink({ ...game, source: 'chess.com', url: 'https://www.chess.com/game/live/1' }, 'bob'), 'https://www.chess.com/game/live/1');
   assert.strictEqual(gameLink(demoGame(), 'Paul Morphy'), null, 'no link for a game with no page');
+});
+
+test('the card opens with scrolls, a versus card and falling pieces, once', () => {
+  const svg = render(demoGame(), { perspective: 'Paul Morphy' });
+  assert.strictEqual(svg.match(/<g class="r[lr]" opacity="0">/g).length, 2);
+  assert.match(svg, /<g class="vt" opacity="0">.*?>Duke Karl \/ Count Iso…<\/text><\/g><g class="vb" opacity="0">.*?>Paul Morphy<\/text><\/g><text class="vv a"[^>]*>VS<\/text>/);
+  assert.strictEqual(svg.match(/<use class="rn" style="animation-delay:[\d.]+s"/g).length, 32);
+  assert.match(svg, /<g transform="translate\(0 192\)"><use class="rn" style="animation-delay:2\.94s" href="#pw"/);
+  assert.match(svg, /<g transform="translate\(224 0\)"><use class="rn" style="animation-delay:3\.69s" href="#rb"/);
+  for (const name of ['sl', 'sr', 'rl', 'rr', 'vt', 'vb', 'vv']) assert.match(svg, new RegExp(`\\.${name}\\{animation:${name} [\\d.]+s [a-z-]+ forwards\\}`));
+  assert.match(svg, /\.rn\{animation:rn \.42s ease-in backwards\}/);
+  assert.strictEqual(svg.match(/ infinite backwards\}/g).length, svg.match(/ infinite/g).length);
+  assert.strictEqual(svg.match(/ 3\.65s infinite backwards\}/g).length, svg.match(/ infinite/g).length);
+});
+
+test('between replays the board dissolves and returns in a diagonal sweep', () => {
+  const svg = render(demoGame());
+  const groups = svg.match(/<g class="dg\d" fill="#ffffff" opacity="0">(?:<rect [^>]*\/>){8}<\/g>/g);
+  assert.strictEqual(groups.length, 8);
+  const squares = new Set(groups.join('').match(/x="-?\d+" y="-?\d+"/g));
+  assert.strictEqual(squares.size, 64);
+  const sweep = svg.match(/@keyframes sw\{(.*?)\}\.sw\{/)[1];
+  assert.strictEqual(sweep.match(/translateX\(\d+px\)/g).length, 17);
+  assert.match(sweep, /translateX\(480px\)\}[\d.]+%,100%\{transform:translateX\(0px\);opacity:1\}$/);
+  assert.match(svg, /\.sw1\{animation:sw1 4\.65s linear\}/);
+  assert.match(svg, /<g class="sw1" clip-path="url\(#sc\)"><path class="sw" [^>]*opacity="0"\/><\/g>/);
+  assert.doesNotMatch(svg, /class="pc"/);
 });

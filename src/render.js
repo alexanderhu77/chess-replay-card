@@ -17,19 +17,20 @@ const POCKET_SCALE = 0.75;             // crazyhouse pocket pieces, relative to 
 const POCKET_SLOT = 32;                // horizontal spacing of pocket pieces
 const COUNT_SIZE = 10;                 // the number beside a pocket piece held more than once
 const DROP_BUMP = 1.22;                // how oversized a dropped piece is at the moment it lands
+const INTRO = { rollFrom: 0.2, rollTo: 1.2, rodsGone: 1.45, vsOut: 2.05, doorsFrom: 2.2, doorsTo: 2.85, rain: 2.85, gameStarts: 3.65 };
 
 const PALETTES = {
   light: {
     bg: '#ffffff', lightSq: '#eef1f4', darkSq: '#b7c0ca', frame: '#d0d7de',
     whiteFill: '#ffffff', whiteLine: '#1f2328', blackFill: '#1f2328', blackLine: '#ffffff',
     move: '#2da44e', check: '#cf222e', text: '#1f2328', muted: '#656d76', accent: '#1a7f37',
-    drop: '#218bff', gain: '#a475f9',
+    drop: '#218bff', gain: '#a475f9', wood: '#c49a5e', woodDark: '#7d5c2e', woodLight: '#ecd4a4',
   },
   dark: {
     bg: '#0d1117', lightSq: '#3b4450', darkSq: '#262c36', frame: '#30363d',
     whiteFill: '#f0f6fc', whiteLine: '#0d1117', blackFill: '#0d1117', blackLine: '#c9d1d9',
     move: '#2ea043', check: '#f85149', text: '#e6edf3', muted: '#8b949e', accent: '#3fb950',
-    drop: '#388bfd', gain: '#a371f7',
+    drop: '#388bfd', gain: '#a371f7', wood: '#a8824c', woodDark: '#5f4523', woodLight: '#d2b07a',
   },
 };
 
@@ -94,10 +95,11 @@ function render(game, options = {}) {
   const tPly = (i) => START + i * STEP;
   const lastT = shown.length ? tPly(shown.length - 1) + MOVE : START;
   const holdEnd = lastT + END_HOLD;
-  const FADE = 0.4;
+  const FADE = 0.75;
   const D = holdEnd + FADE + 0.4;
   const pct = (sec) => num(Math.min(100, Math.max(0, (sec / D) * 100)));
   const dur = `${num(D)}s`;
+  const loop = (name, timing) => `animation:${name} ${dur} ${timing} ${INTRO.gameStarts}s infinite backwards`;
 
   // Build per-piece tracks
   const flights = [];   // crazyhouse captures, flown to the capturer's pocket
@@ -200,14 +202,14 @@ function render(game, options = {}) {
   };
   if (shown.length) {
     css.push(`@keyframes hf{${hlFrames(cameFrom)}}@keyframes ht{${hlFrames((ply) => onSquare(ply.to))}}`);
-    css.push(`.hf{animation:hf ${dur} steps(1,end) infinite}.ht{animation:ht ${dur} steps(1,end) infinite}`);
+    css.push(`.hf{${loop('hf', 'steps(1,end)')}}.ht{${loop('ht', 'steps(1,end)')}}`);
     body.push(`<rect class="hf" width="${S}" height="${S}" fill="${pal.move}" opacity="0"/>`);
     body.push(`<rect class="ht" width="${S}" height="${S}" fill="${pal.move}" opacity="0"/>`);
     if (flights.length) {
       // When a captured piece arrives in a pocket, its slot lights up until the next move starts.
       let hp = `0%{opacity:0}`;
       for (const f of flights) hp += `${pct(f.t + FLY)}%{opacity:.5;transform:${onPocket(f.side, f.as)}}${pct(f.t - FLY_WAIT + STEP)}%{opacity:0}`;
-      css.push(`@keyframes hp{${hp}${pct(holdEnd)}%,100%{opacity:0}}.hp{animation:hp ${dur} steps(1,end) infinite}`);
+      css.push(`@keyframes hp{${hp}${pct(holdEnd)}%,100%{opacity:0}}.hp{${loop('hp', 'steps(1,end)')}}`);
       body.push(`<rect class="hp" width="${S}" height="${S}" fill="${pal.gain}" opacity="0"/>`);
     }
 
@@ -223,7 +225,7 @@ function render(game, options = {}) {
         : `${t}%{opacity:0}`;
     });
     ck += `${pct(holdEnd)}%,100%{opacity:0}`;
-    css.push(`@keyframes ck{${ck}}.ck{animation:ck ${dur} steps(1,end) infinite}`);
+    css.push(`@keyframes ck{${ck}}.ck{${loop('ck', 'steps(1,end)')}}`);
     body.push(`<rect class="ck" width="${S}" height="${S}" fill="${pal.check}" opacity="0"/>`);
   }
 
@@ -234,10 +236,6 @@ function render(game, options = {}) {
     const [x, y] = pocketXY(side, type);
     return `translate(${num(x - BX - SPRITE_DX * POCKET_SCALE)}px,${num(y - BY - SPRITE_DY * POCKET_SCALE)}px) scale(${POCKET_SCALE})`;
   };
-  css.push(
-    `@keyframes pc{0%{opacity:0}${pct(START - 0.6)}%,${pct(holdEnd)}%{opacity:1}${pct(holdEnd + FADE)}%,100%{opacity:0}}` +
-      `.pc{animation:pc ${dur} linear infinite}`
-  );
   const pieceEls = [];
   for (const tr of tracks.values()) {
     // A browser re-evaluates every running animation on every frame, even while nothing moves,
@@ -247,9 +245,11 @@ function render(game, options = {}) {
     // In crazyhouse a promoted piece turns back into a pawn when captured, so it carries a
     // small pawn in the corner of its square.
     const badge = startPos.pockets && tr.promoted ? `<use href="#p${tr.color}" transform="translate(${S - 10} 0) scale(.45)"/>` : '';
+    const rainDelay = INTRO.rain + (7 - sqY(tr.sq0) / S) * 0.09 + (sqX(tr.sq0) / S) * 0.03;
+    const rain = tr.appear === null ? ` class="rn" style="animation-delay:${num(rainDelay)}s"` : '';
     const piece =
       `transform="translate(${sqX(tr.last)} ${sqY(tr.last)})"${tr.vanish === null ? '' : ' opacity="0"'}>` +
-      `<use href="#${tr.type}${tr.color}" x="${SPRITE_DX}" y="${SPRITE_DY}"/>${badge}</g>`;
+      `<use${rain} href="#${tr.type}${tr.color}" x="${SPRITE_DX}" y="${SPRITE_DY}"/>${badge}</g>`;
     if (!travels && !fades) {
       pieceEls.push(`<g ${piece}`);
       continue;
@@ -299,7 +299,7 @@ function render(game, options = {}) {
       .sort((a, b) => Number(a[0]) - Number(b[0]))
       .map(([k, v]) => `${k}%{${Object.entries(v).map(([prop, val]) => `${prop}:${val}`).join(';')}}`)
       .join('');
-    css.push(`@keyframes p${tr.id}{${frameCss}}.p${tr.id}{animation:p${tr.id} ${dur} ease-in-out infinite}`);
+    css.push(`@keyframes p${tr.id}{${frameCss}}.p${tr.id}{${loop(`p${tr.id}`, 'ease-in-out')}}`);
     pieceEls.push(`<g class="p${tr.id}" ${piece}`);
   }
   // Crazyhouse captures: a copy of the captured piece flies from its square to the capturer's
@@ -326,9 +326,9 @@ function render(game, options = {}) {
       oldSprite += `${half}%{opacity:1}${end}%{opacity:0${HOLD}}${gone}%{opacity:1${HOLD}}`;
     }
     css.push(
-      `@keyframes fl${n}{${fly}100%{transform:${to};opacity:0}}.fl${n}{animation:fl${n} ${dur} ease-in-out infinite}` +
-        `@keyframes fo${n}{${oldSprite}100%{opacity:1}}.fo${n}{animation:fo${n} ${dur} linear infinite}` +
-        `@keyframes fi${n}{${newSprite}100%{opacity:0}}.fi${n}{animation:fi${n} ${dur} linear infinite}`
+      `@keyframes fl${n}{${fly}100%{transform:${to};opacity:0}}.fl${n}{${loop(`fl${n}`, 'ease-in-out')}}` +
+        `@keyframes fo${n}{${oldSprite}100%{opacity:1}}.fo${n}{${loop(`fo${n}`, 'linear')}}` +
+        `@keyframes fi${n}{${newSprite}100%{opacity:0}}.fi${n}{${loop(`fi${n}`, 'linear')}}`
     );
     const { sprite, as, side } = kind[0];
     const use = (cls, id) => `<use class="${cls}" href="#${id}" x="${SPRITE_DX}" y="${SPRITE_DY}"/>`;
@@ -337,7 +337,7 @@ function render(game, options = {}) {
 
   // Pieces and the end banner are drawn last, above the side panel, so that pieces stay on
   // top while they travel between the board and a pocket.
-  const pieceLayer = `<g class="pc">${pieceEls.join('')}</g>`;
+  const pieceLayer = `<g>${pieceEls.join('')}</g>`;
 
   // End-of-game overlay
   // The banner says who won and, on a second line, how.
@@ -346,7 +346,7 @@ function render(game, options = {}) {
   const how = label === winner ? '' : label;
   css.push(
     `@keyframes eo{0%,${pct(lastT + 0.3)}%{opacity:0}${pct(lastT + 0.6)}%,${pct(holdEnd)}%{opacity:1}${pct(holdEnd + FADE)}%,100%{opacity:0}}` +
-      `.eo{animation:eo ${dur} linear infinite}`
+      `.eo{${loop('eo', 'linear')}}`
   );
   const bannerY = S * 3.05;
   const endBanner =
@@ -407,7 +407,7 @@ function render(game, options = {}) {
           if (changes.length === 2) { body.push(el); continue; }
           const frames = new Map(changes.map(([t, c]) => [pct(t), c === v ? 1 : 0]));
           const name = `z${side}${type}${v}`;
-          css.push(`@keyframes ${name}{${[...frames].map(([k, o]) => `${k}%{opacity:${o}}`).join('')}}.${name}{animation:${name} ${dur} steps(1,end) infinite}`);
+          css.push(`@keyframes ${name}{${[...frames].map(([k, o]) => `${k}%{opacity:${o}}`).join('')}}.${name}{${loop(name, 'steps(1,end)')}}`);
           body.push(`<g class="${name}" opacity="${count === v ? 1 : 0}">${el}</g>`);
         }
       });
@@ -430,7 +430,7 @@ function render(game, options = {}) {
       return `<text x="${PX0}" y="${moveY + (i + 1) * LINE}" font-size="22" font-weight="700">${esc(label)}</text>`;
     });
     mv += `${pct(tPly(shown.length - 1) + STEP + END_HOLD)}%,100%{transform:${scroll(0)}}`;
-    css.push(`@keyframes mv{${mv}}.mv{animation:mv ${dur} steps(1,end) infinite}`);
+    css.push(`@keyframes mv{${mv}}.mv{${loop('mv', 'steps(1,end)')}}`);
     body.push(
       `<clipPath id="mw"><rect x="${PX0 - 2}" y="${moveY - 24}" width="${PANEL_W + 4}" height="32"/></clipPath>` +
         `<g clip-path="url(#mw)"><g class="mv" transform="translate(0 ${-shown.length * LINE})">${lines.join('')}</g></g>`
@@ -442,10 +442,67 @@ function render(game, options = {}) {
 
   // The result appears as the end banner does. Its animation plays once and then holds, so on
   // the first pass the result is a surprise and on every replay after that it stays in view.
-  css.push(`@keyframes rk{0%,${pct(lastT + 0.3)}%{opacity:0}${pct(lastT + 0.6)}%,100%{opacity:1}}.rs{animation:rk ${dur} linear forwards}`);
+  css.push(`@keyframes rk{0%,${pct(lastT + 0.3)}%{opacity:0}${pct(lastT + 0.6)}%,100%{opacity:1}}.rs{animation:rk ${dur} linear ${INTRO.gameStarts}s both}`);
   body.push(`<g class="rs">${result.join('')}</g>`);
 
-  body.push(`<g transform="translate(${BX} ${BY})">${pieceLayer}${endBanner}</g>`);
+  const B = 8 * S;
+  const share = (sec, total) => num((sec / total) * 100);
+  css.push(`@keyframes rn{0%{transform:translateY(${-(B + 40)}px)}72%{transform:translateY(5px)}100%{transform:translateY(0px)}}.rn{animation:rn .42s ease-in backwards}`);
+
+  let outro = '';
+  for (let g = 0; g < 8; g++) {
+    let rects = '';
+    for (let i = 0; i < 64; i++) {
+      if (Math.floor(((i * 37 + 11) % 64) / 8) !== g) continue;
+      rects += `<rect x="${(i % 8) * S - 1}" y="${Math.floor(i / 8) * S - 1}" width="${S + 2}" height="${S + 2}"/>`;
+    }
+    css.push(`@keyframes dg${g}{0%{opacity:0}${pct(holdEnd + 0.05 + g * 0.085)}%,100%{opacity:1}}.dg${g}{${loop(`dg${g}`, 'steps(1,end)')}}`);
+    outro += `<g class="dg${g}" fill="${pal.bg}" opacity="0">${rects}</g>`;
+  }
+  let stairs = '';
+  for (let row = 0; row < 8; row++) stairs += `M${-(7 - row) * S - 1} ${row * S - 1}h${B + (7 - row) * S + 2}v${S + 2}h${-(B + (7 - row) * S + 2)}z`;
+  let sweep = `0%{transform:translateX(0px);opacity:1}`;
+  for (let k = 1; k <= 15; k++) sweep += `${pct(0.08 + k * 0.055)}%{transform:translateX(${k * S}px)}`;
+  sweep += `${pct(D - 0.08)}%,100%{transform:translateX(0px);opacity:1}`;
+  css.push(
+    `@keyframes sw{${sweep}}.sw{${loop('sw', 'steps(1,end)')}}` +
+      `@keyframes sw1{0%,100%{opacity:0}}.sw1{animation:sw1 ${num(INTRO.gameStarts + 1)}s linear}`
+  );
+  outro +=
+    `<clipPath id="sc"><rect x="-1" y="-1" width="${B + 2}" height="${B + 2}"/></clipPath>` +
+    `<g class="sw1" clip-path="url(#sc)"><path class="sw" d="${stairs}" fill="${pal.bg}" opacity="0"/></g>`;
+
+  const cardName = (side) => esc(trunc((side === 'w' ? game.white : game.black).name, 22));
+  const open = B / 2 + 3;
+  const rod = (cls) =>
+    `<g class="${cls}" opacity="0"><rect x="-6" y="-10" width="12" height="${B + 20}" rx="3" fill="${pal.wood}"/>` +
+    `<rect x="-7" y="-12" width="14" height="8" rx="2" fill="${pal.woodDark}"/><rect x="-7" y="${B + 4}" width="14" height="8" rx="2" fill="${pal.woodDark}"/>` +
+    `<rect x="-3" y="-3" width="2" height="${B + 6}" fill="${pal.woodLight}" opacity=".7"/></g>`;
+  const [rollFrom, rollTo] = [share(INTRO.rollFrom, INTRO.rodsGone), share(INTRO.rollTo, INTRO.rodsGone)];
+  const doorsLast = INTRO.doorsTo + 0.05;
+  const [doorsFrom, doorsTo] = [share(INTRO.doorsFrom, doorsLast), share(INTRO.doorsTo, doorsLast)];
+  css.push(
+    `@keyframes sl{0%,${rollFrom}%{transform:translateX(0px);opacity:1}${rollTo}%{transform:translateX(${-open}px);opacity:1}100%{transform:translateX(${-open}px);opacity:0}}` +
+      `@keyframes sr{0%,${rollFrom}%{transform:translateX(0px);opacity:1}${rollTo}%{transform:translateX(${open}px);opacity:1}100%{transform:translateX(${open}px);opacity:0}}` +
+      `@keyframes rl{0%,${rollFrom}%{transform:translateX(${B / 2 - 6}px);opacity:1}${rollTo}%{transform:translateX(-9px);opacity:1}100%{transform:translateX(-9px);opacity:0}}` +
+      `@keyframes rr{0%,${rollFrom}%{transform:translateX(${B / 2 + 6}px);opacity:1}${rollTo}%{transform:translateX(${B + 9}px);opacity:1}100%{transform:translateX(${B + 9}px);opacity:0}}` +
+      ['sl', 'sr', 'rl', 'rr'].map((n) => `.${n}{animation:${n} ${INTRO.rodsGone}s ease-in-out forwards}`).join('') +
+      `@keyframes vt{0%,${doorsFrom}%{transform:translateY(0px);opacity:1}${doorsTo}%{transform:translateY(${-open}px);opacity:1}100%{transform:translateY(${-open}px);opacity:0}}` +
+      `@keyframes vb{0%,${doorsFrom}%{transform:translateY(0px);opacity:1}${doorsTo}%{transform:translateY(${open}px);opacity:1}100%{transform:translateY(${open}px);opacity:0}}` +
+      `@keyframes vv{0%,${share(INTRO.vsOut, INTRO.doorsFrom)}%{opacity:1}100%{opacity:0}}` +
+      `.vt{animation:vt ${num(doorsLast)}s ease-in forwards}.vb{animation:vb ${num(doorsLast)}s ease-in forwards}.vv{animation:vv ${INTRO.doorsFrom}s linear forwards}`
+  );
+  const intro =
+    `<clipPath id="bc"><rect x="-3" y="-3" width="${B + 6}" height="${B + 6}" rx="4"/></clipPath><g clip-path="url(#bc)">` +
+    `<g class="vt" opacity="0"><rect x="-3" y="-3" width="${B + 6}" height="${open}" fill="${pal.bg}"/><use href="#k${topSide}" x="${B / 2 - 11}" y="36"/>` +
+    `<text x="${B / 2}" y="86" text-anchor="middle" font-size="15" font-weight="700">${cardName(topSide)}</text></g>` +
+    `<g class="vb" opacity="0"><rect x="-3" y="${B / 2}" width="${B + 6}" height="${open}" fill="${pal.bg}"/><use href="#k${bottomSide}" x="${B / 2 - 11}" y="${B - 60}"/>` +
+    `<text x="${B / 2}" y="${B - 74}" text-anchor="middle" font-size="15" font-weight="700">${cardName(bottomSide)}</text></g>` +
+    `<text class="vv a" x="${B / 2}" y="${B / 2 + 8}" text-anchor="middle" font-size="24" font-weight="700" letter-spacing="3" opacity="0">VS</text>` +
+    `<rect class="sl" x="-3" y="-3" width="${open}" height="${B + 6}" fill="${pal.bg}" opacity="0"/>` +
+    `<rect class="sr" x="${B / 2}" y="-3" width="${open}" height="${B + 6}" fill="${pal.bg}" opacity="0"/></g>${rod('rl')}${rod('rr')}`;
+
+  body.push(`<g transform="translate(${BX} ${BY})">${pieceLayer}${outro}${endBanner}${intro}</g>`);
 
   const alt = `Animated replay of ${game.white.name} vs ${game.black.name}, ${game.result}`;
   return (
