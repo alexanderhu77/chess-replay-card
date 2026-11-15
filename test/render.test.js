@@ -78,8 +78,18 @@ test('renders a Lichess crazyhouse game with drops and pockets', () => {
     /translate\(280\.25px,207px\) scale\(0\.75\);opacity:1\}[\d.]+%\{transform:translate\(156\.48px,28\.48px\) scale\(1\.22\)\}[\d.]+%\{transform:translate\(160px,32px\) scale\(1\)/,
     'the dropped pawn slides from the pocket to f7 and lands with a bump'
   );
-  // The drop's "from" highlight frames the pawn slot of white's pocket instead of a square.
-  assert.match(svg.match(/@keyframes hf\{.*?\}\.hf/)[0], /translate\(282px,208px\) scale\(0\.641,0\.688\)/);
+  // The drop's "from" highlight frames the pawn slot of white's pocket instead of a square, in blue.
+  const from = svg.match(/@keyframes hf\{(.*?)\}@keyframes ht/)[1];
+  const to = svg.match(/@keyframes ht\{(.*?)\}\.hf/)[1];
+  assert.match(from, /translate\(282px,208px\) scale\(0\.641,0\.688\);fill:#218bff\}/);
+  assert.match(to, /translate\(160px,32px\);fill:#218bff\}/, 'the square it lands on is blue too');
+  assert.strictEqual(from.match(/fill:#218bff/g).length, 1, 'only the drop is blue');
+  assert.strictEqual(from.match(/fill:#2da44e/g).length, 16, 'ordinary moves stay green');
+  // 5. exd5: white's pawn slot lights up purple when the captured pawn arrives.
+  assert.match(svg, /<rect class="hp" [^>]*fill="#a475f9"/);
+  assert.match(svg.match(/@keyframes hp\{.*?\}\.hp/)[0], /%\{opacity:\.5;transform:translate\(282px,208px\) scale\(0\.641,0\.688\)\}[\d.]+%\{opacity:0\}/);
+  const standard = render(demoGame());
+  assert.doesNotMatch(standard, /class="hp"|#218bff|fill:#2da44e/, 'standard games keep the plain green highlight');
   assert.strictEqual(svg.match(/scale\(0\.75\)" opacity="\.22"\/>/g).length, 10, 'all five slots of both pockets are always drawn faintly');
   assert.doesNotMatch(render(demoGame()), /opacity="\.22"/, 'standard games have no pockets');
 });

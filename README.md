@@ -9,7 +9,7 @@ Your latest chess game, replayed move by move on your GitHub profile. Works with
 
 *The demo is Morphy's famous 1858 Opera Game. Yours will show your own latest game.*
 
-Every move slides across a pixel-art board with last-move and check highlights, alongside the players. The result is kept back until the last move lands, then stays in view. The board is shown from your side, so if you played black, it flips. Lichess crazyhouse games are replayed too, with each player's pocket shown beside their name: captured pieces fly into it, and dropped pieces slide from it onto the board. Promoted pieces carry a small pawn badge, since they turn back into pawns when captured. A sibling of [Commit Blaster](https://github.com/surya6032/commit-blaster).
+Every move slides across a pixel-art board with last-move and check highlights, alongside the players. The result is kept back until the last move lands, then stays in view. The board is shown from your side, so if you played black, it flips. Lichess crazyhouse games are replayed too, with each player's pocket shown beside their name: captured pieces fly into it, and dropped pieces slide from it onto the board. Drops are highlighted in blue, and a pocket slot lights up purple when a captured piece arrives in it. Promoted pieces carry a small pawn badge, since they turn back into pawns when captured. A sibling of [Commit Blaster](https://github.com/surya6032/commit-blaster).
 
 ## Add it to your profile
 

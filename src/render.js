@@ -23,11 +23,13 @@ const PALETTES = {
     bg: '#ffffff', lightSq: '#eef1f4', darkSq: '#b7c0ca', frame: '#d0d7de',
     whiteFill: '#ffffff', whiteLine: '#1f2328', blackFill: '#1f2328', blackLine: '#ffffff',
     move: '#2da44e', check: '#cf222e', text: '#1f2328', muted: '#656d76', accent: '#1a7f37',
+    drop: '#218bff', gain: '#a475f9',
   },
   dark: {
     bg: '#0d1117', lightSq: '#3b4450', darkSq: '#262c36', frame: '#30363d',
     whiteFill: '#f0f6fc', whiteLine: '#0d1117', blackFill: '#0d1117', blackLine: '#c9d1d9',
     move: '#2ea043', check: '#f85149', text: '#e6edf3', muted: '#8b949e', accent: '#3fb950',
+    drop: '#388bfd', gain: '#a371f7',
   },
 };
 
@@ -186,10 +188,12 @@ function render(game, options = {}) {
   };
   // Where a move came from: the square it left or, for a crazyhouse drop, the pocket slot.
   const cameFrom = (ply) => (ply.drop ? onPocket(ply.color, ply.drop.type) : onSquare(ply.from));
+  // In crazyhouse the highlight is also coloured: green for an ordinary move, blue for a drop.
+  const tint = startPos.pockets ? (ply) => `;fill:${ply.drop ? pal.drop : pal.move}` : () => '';
   const hlFrames = (where) => {
     let k = `0%{opacity:0;transform:translate(0px,0px)}`;
     shown.forEach((ply, i) => {
-      k += `${pct(tPly(i))}%{opacity:.5;transform:${where(ply)}}`;
+      k += `${pct(tPly(i))}%{opacity:.5;transform:${where(ply)}${tint(ply)}}`;
     });
     k += `${pct(holdEnd)}%,100%{opacity:0}`;
     return k;
@@ -199,6 +203,13 @@ function render(game, options = {}) {
     css.push(`.hf{animation:hf ${dur} steps(1,end) infinite}.ht{animation:ht ${dur} steps(1,end) infinite}`);
     body.push(`<rect class="hf" width="${S}" height="${S}" fill="${pal.move}" opacity="0"/>`);
     body.push(`<rect class="ht" width="${S}" height="${S}" fill="${pal.move}" opacity="0"/>`);
+    if (flights.length) {
+      // When a captured piece arrives in a pocket, its slot lights up until the next move starts.
+      let hp = `0%{opacity:0}`;
+      for (const f of flights) hp += `${pct(f.t + FLY)}%{opacity:.5;transform:${onPocket(f.side, f.as)}}${pct(f.t - FLY_WAIT + STEP)}%{opacity:0}`;
+      css.push(`@keyframes hp{${hp}${pct(holdEnd)}%,100%{opacity:0}}.hp{animation:hp ${dur} steps(1,end) infinite}`);
+      body.push(`<rect class="hp" width="${S}" height="${S}" fill="${pal.gain}" opacity="0"/>`);
+    }
 
     let ck = `0%{opacity:0}`;
     shown.forEach((ply, i) => {
