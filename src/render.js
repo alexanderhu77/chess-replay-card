@@ -426,7 +426,8 @@ function render(game, options = {}) {
     let mv = `0%{transform:${scroll(0)}}`;   // the strip starts on an empty line, before the first move
     const lines = shown.map((ply, i) => {
       mv += `${pct(tPly(i))}%{transform:${scroll(i + 1)}}`;
-      const label = ply.color === 'w' ? `${ply.moveNumber}. ${ply.san}` : `${ply.moveNumber}… ${ply.san}`;
+      const san = ply.san.replace(/^P@/, '@');
+      const label = ply.color === 'w' ? `${ply.moveNumber}. ${san}` : `${ply.moveNumber}… ${san}`;
       return `<text x="${PX0}" y="${moveY + (i + 1) * LINE}" font-size="22" font-weight="700">${esc(label)}</text>`;
     });
     mv += `${pct(tPly(shown.length - 1) + STEP + END_HOLD)}%,100%{transform:${scroll(0)}}`;

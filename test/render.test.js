@@ -63,7 +63,8 @@ test('renders a Lichess crazyhouse game with drops and pockets', () => {
   assert.strictEqual(game.variant, 'crazyhouse');
   const svg = render(game, { perspective: 'alice' });
   assert.doesNotMatch(svg, /Blitz|Crazyhouse|moves</, 'the panel shows no time control, variant or move count');
-  assert.match(svg, /8\. P@f7/);
+  assert.match(svg, />8\. @f7</);
+  assert.doesNotMatch(svg, /P@/);
   assert.match(svg, /@keyframes zwp1/, 'the white pawn pocket is animated');
   // 5. exd5: the black pawn flies from d5 to white's pawn pocket, turning white on the way.
   assert.match(svg, /@keyframes fl0\{0%\{transform:translate\(96px,96px\) scale\(1\);opacity:0;/);
@@ -72,7 +73,7 @@ test('renders a Lichess crazyhouse game with drops and pockets', () => {
   assert.match(svg.match(/@keyframes fl0\{.*?\}\.fl0/)[0], /translate\(160px,32px\) scale\(1\);opacity:1/);
   assert.strictEqual(svg.match(/<g class="fl\d+"/g).length, 3, 'four captures of three kinds share three flyers');
   assert.doesNotMatch(render(demoGame()), /class="fl\d+"/, 'standard games have no flights to a pocket');
-  // 8. P@f7: the pawn slides from the pocket, lands on f7 slightly oversized, then settles.
+  // 8. @f7: the pawn slides from the pocket, lands on f7 slightly oversized, then settles.
   assert.match(
     svg,
     /translate\(280\.25px,207px\) scale\(0\.75\);opacity:1\}[\d.]+%\{transform:translate\(156\.48px,28\.48px\) scale\(1\.22\)\}[\d.]+%\{transform:translate\(160px,32px\) scale\(1\)/,
