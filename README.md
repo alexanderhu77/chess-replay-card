@@ -1,6 +1,6 @@
 # Chess Replay Card
 
-Your latest chess game, replayed move by move on your GitHub profile. Works with Lichess and Chess.com, and needs no token.
+Your latest chess game, replayed move by move on your GitHub profile. Works with Lichess (including crazyhouse) and Chess.com, and needs no token.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="examples/chess-replay-dark.svg">
@@ -9,7 +9,7 @@ Your latest chess game, replayed move by move on your GitHub profile. Works with
 
 *The demo is Morphy's famous 1858 Opera Game. Yours will show your own latest game.*
 
-Every move slides across a pixel-art board with last-move and check highlights, alongside the players, ratings, opening and result. The board is shown from your side, so if you played black, it flips. A sibling of [Commit Blaster](https://github.com/surya6032/commit-blaster).
+Every move slides across a pixel-art board with last-move and check highlights, alongside the players, ratings, opening and result. The board is shown from your side, so if you played black, it flips. Lichess crazyhouse games are replayed too, with drops landing on the board and each player's pocket shown beside their name. A sibling of [Commit Blaster](https://github.com/surya6032/commit-blaster).
 
 ## Add it to your profile
 
@@ -87,7 +87,7 @@ Requires Node 18 or newer. There is nothing to install.
 
 ## How it works
 
-The action downloads your most recent standard game from the public Lichess or Chess.com API, then replays it with a small built-in chess engine that handles castling, en passant, promotion and check. The engine is verified against standard perft benchmarks in the test suite. Every piece gets its own CSS keyframes inside a single SVG, so the replay runs anywhere an image does, with no JavaScript. Viewers who prefer reduced motion see the final position.
+The action downloads your most recent standard game from the public Lichess or Chess.com API (on Lichess, crazyhouse games count too), then replays it with a small built-in chess engine that handles castling, en passant, promotion, check and crazyhouse drops. The engine is verified against standard perft benchmarks in the test suite. Every piece gets its own CSS keyframes inside a single SVG, so the replay runs anywhere an image does, with no JavaScript. Viewers who prefer reduced motion see the final position.
 
 ## Contributing
 

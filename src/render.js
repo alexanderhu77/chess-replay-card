@@ -1,6 +1,6 @@
 'use strict';
 
-const { replay } = require('./chess');
+const { replay, POCKET_TYPES } = require('./chess');
 const { PIECES, withOutline, bitmapPath } = require('./sprites');
 
 const S = 32;          // square size
@@ -54,7 +54,7 @@ function render(game, options = {}) {
   const speed = Math.max(0.25, Math.min(4, Number(options.speed) || 1));
   const maxPlies = Math.max(2, Math.round((Number(options.maxMoves) || 60) * 2));
 
-  const { initial, plies } = replay(game.moves);
+  const { initial, plies } = replay(game.moves, undefined, game.variant || 'standard');
   const startPly = Math.max(0, plies.length - maxPlies);
   const shown = plies.slice(startPly);
   const startPos = startPly > 0 ? plies[startPly].before : initial;
@@ -96,6 +96,10 @@ function render(game, options = {}) {
       tr.last = mv.to;
     }
     if (ply.captured !== null) tracks.get(ply.captured).vanish = t + MOVE;
+    if (ply.drop) {
+      const d = ply.drop;
+      tracks.set(d.id, { type: d.type, color: d.color, id: d.id, sq0: d.square, moves: [], appear: t, vanish: null, last: d.square });
+    }
     if (ply.promotion) {
       const pr = ply.promotion;
       tracks.get(pr.pawnId).vanish = t + MOVE;
@@ -155,7 +159,7 @@ function render(game, options = {}) {
     return k;
   };
   if (shown.length) {
-    css.push(`@keyframes hf{${hlFrames((p) => p.from)}}@keyframes ht{${hlFrames((p) => p.to)}}`);
+    css.push(`@keyframes hf{${hlFrames((p) => (p.from >= 0 ? p.from : p.to))}}@keyframes ht{${hlFrames((p) => p.to)}}`);
     css.push(`.hf{animation:hf ${dur} steps(1,end) infinite}.ht{animation:ht ${dur} steps(1,end) infinite}`);
     body.push(`<rect class="hf" width="${S}" height="${S}" fill="${pal.move}" opacity="0"/>`);
     body.push(`<rect class="ht" width="${S}" height="${S}" fill="${pal.move}" opacity="0"/>`);
@@ -195,13 +199,14 @@ function render(game, options = {}) {
     }
     set(after, 'transform', pos(tr.last));
     set('end', 'transform', pos(tr.sq0));
-    if (tr.appear !== null) {
-      set(0, 'opacity', 0); set(tr.appear - 0.01, 'opacity', 0);
-      set(tr.appear, 'opacity', 1); set(after, 'opacity', 1); set('end', 'opacity', 0);
-    }
-    if (tr.vanish !== null) {
-      set(0, 'opacity', 1); set(tr.vanish - 0.02, 'opacity', 1);
-      set(tr.vanish + 0.12, 'opacity', 0); set(after, 'opacity', 0); set('end', 'opacity', 1);
+    // Promoted and dropped pieces appear mid-game; captured ones vanish. A piece can do both.
+    if (tr.appear !== null || tr.vanish !== null) {
+      const born = tr.appear === null ? 1 : 0;
+      set(0, 'opacity', born);
+      if (tr.appear !== null) { set(tr.appear - 0.01, 'opacity', 0); set(tr.appear, 'opacity', 1); }
+      if (tr.vanish !== null) { set(tr.vanish - 0.02, 'opacity', 1); set(tr.vanish + 0.12, 'opacity', 0); }
+      set(after, 'opacity', tr.vanish === null ? 1 : 0);
+      set('end', 'opacity', born);
     }
     const frameCss = [...frames.entries()]
       .sort((a, b) => Number(a[0]) - Number(b[0]))
@@ -251,9 +256,43 @@ function render(game, options = {}) {
   body.push(playerRow(topSide, BY + 16));
   body.push(playerRow(bottomSide, BY + 8 * S - 4));
 
+  // Crazyhouse pockets: the pieces each player holds in hand, next to their name.
+  if (startPos.pockets) {
+    const reset = holdEnd + FADE + 0.05;
+    const pocketRow = (side, y) => {
+      [...POCKET_TYPES].forEach((type, slot) => {
+        // Count over time: drops leave the pocket as they land, captures arrive when the move ends.
+        const first = startPos.pockets[side][type];
+        const changes = [[0, first]];
+        let count = first;
+        shown.forEach((ply, i) => {
+          const c = ply.after.pockets[side][type];
+          if (c !== count) changes.push([ply.drop ? tPly(i) : tPly(i) + MOVE, c]);
+          count = c;
+        });
+        changes.push([reset, first]);
+        const x = PX0 + slot * 28;
+        for (const v of new Set(changes.map((c) => c[1]))) {
+          if (v === 0) continue;
+          const el =
+            `<use href="#${type}${side}" transform="translate(${x} ${y}) scale(.6)"/>` +
+            (v > 1 ? `<text x="${x + 15}" y="${y + 13}" font-size="9" class="m">${v}</text>` : '');
+          if (changes.length === 2) { body.push(el); continue; }
+          const frames = new Map(changes.map(([t, c]) => [pct(t), c === v ? 1 : 0]));
+          const name = `z${side}${type}${v}`;
+          css.push(`@keyframes ${name}{${[...frames].map(([k, o]) => `${k}%{opacity:${o}}`).join('')}}.${name}{animation:${name} ${dur} steps(1,end) infinite}`);
+          body.push(`<g class="${name}" opacity="${count === v ? 1 : 0}">${el}</g>`);
+        }
+      });
+    };
+    pocketRow(topSide, BY + 24);
+    pocketRow(bottomSide, BY + 8 * S - 40);
+  }
+
   // Middle: game info and the current move
   let y = BY + 52;
-  const info = [game.timeClass, game.clock].filter(Boolean).join(' ');
+  const variantName = game.variant === 'crazyhouse' ? 'Crazyhouse' : null;
+  const info = [variantName, game.timeClass, game.clock].filter(Boolean).join(' ');
   const date = game.date
     ? game.date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' })
     : null;

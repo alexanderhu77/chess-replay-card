@@ -50,3 +50,17 @@ test('reads opening names from Chess.com ECO urls', () => {
     'Sicilian Defense Old Sicilian Variation'
   );
 });
+
+test('renders a Lichess crazyhouse game with drops and pockets', () => {
+  const game = normalizeLichess({
+    id: 'zh123456', variant: 'crazyhouse', speed: 'blitz', status: 'resign', winner: 'white', createdAt: 1700000000000,
+    players: { white: { user: { name: 'alice' }, rating: 1500 }, black: { user: { name: 'bob' }, rating: 1600 } },
+    clock: { initial: 180, increment: 0 },
+    moves: 'e4 e5 Nf3 Nc6 Bc4 Nf6 Ng5 d5 exd5 Nxd5 Nxf7 Kxf7 Qf3+ Ke6 P@f7 Nce7 Qe4',
+  });
+  assert.strictEqual(game.variant, 'crazyhouse');
+  const svg = render(game, { perspective: 'alice' });
+  assert.match(svg, /Crazyhouse Blitz 3\+0/);
+  assert.match(svg, /8\. P@f7/);
+  assert.match(svg, /@keyframes zwp1/, 'the white pawn pocket is animated');
+});

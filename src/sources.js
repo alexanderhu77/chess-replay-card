@@ -5,6 +5,9 @@ const { parsePgn } = require('./pgn');
 const UA = 'chess-replay-card (+https://github.com/surya6032/chess-replay-card)';
 const cap = (s) => (s ? s[0].toUpperCase() + s.slice(1) : s);
 
+// Variants the replay engine can play through.
+const LICHESS_VARIANTS = ['standard', 'crazyhouse'];
+
 async function getJson(url, headers = {}) {
   const res = await fetch(url, { headers: { 'User-Agent': UA, ...headers } });
   if (res.status === 404) throw new Error(`Not found: ${url}`);
@@ -34,6 +37,7 @@ function normalizeLichess(g, url) {
   const ending = g.winner ? `${cap(g.winner)} won by ${reason}` : g.status === 'stalemate' ? 'Draw by stalemate' : 'Draw';
   const clock = g.clock ? `${g.clock.initial / 60}+${g.clock.increment}` : null;
   return {
+    variant: g.variant || 'standard',
     source: 'lichess.org',
     url: url || `https://lichess.org/${g.id}`,
     white: player('white'),
@@ -49,17 +53,21 @@ function normalizeLichess(g, url) {
   };
 }
 
-/** Latest standard game for a Lichess user, or a specific game by id. */
+/** Latest standard or crazyhouse game for a Lichess user, or a specific game by id. */
 async function fetchLichess(username, gameId) {
   if (gameId) {
     const res = await getJson(`https://lichess.org/game/export/${encodeURIComponent(gameId)}?opening=true&clocks=false&evals=false`, { Accept: 'application/json' });
-    return normalizeLichess(await res.json());
+    const game = normalizeLichess(await res.json());
+    if (!LICHESS_VARIANTS.includes(game.variant)) {
+      throw new Error(`Lichess game "${gameId}" is a ${game.variant} game. Only standard and crazyhouse games are supported.`);
+    }
+    return game;
   }
   const url = `https://lichess.org/api/games/user/${encodeURIComponent(username)}?max=10&opening=true&clocks=false&evals=false&moves=true`;
   const res = await getJson(url, { Accept: 'application/x-ndjson' });
   const games = (await res.text()).split('\n').filter(Boolean).map((line) => JSON.parse(line));
-  const game = games.find((g) => g.variant === 'standard' && g.moves && !g.initialFen);
-  if (!game) throw new Error(`No recent standard games found for Lichess user "${username}".`);
+  const game = games.find((g) => LICHESS_VARIANTS.includes(g.variant) && g.moves && !g.initialFen);
+  if (!game) throw new Error(`No recent standard or crazyhouse games found for Lichess user "${username}".`);
   return normalizeLichess(game);
 }
 

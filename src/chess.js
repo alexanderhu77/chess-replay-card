@@ -1,7 +1,9 @@
 'use strict';
 
 // A small, dependency-free chess move engine: enough to replay any legal game
-// from SAN notation, including castling, en passant and promotion.
+// from SAN notation, including castling, en passant and promotion. It also
+// knows the crazyhouse variant, where captured pieces change sides and can be
+// dropped back onto the board ("N@f3").
 
 const FILES = 'abcdefgh';
 const START_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
@@ -15,15 +17,27 @@ const at = (f, r) => (f >= 0 && f < 8 && r >= 0 && r < 8 ? r * 8 + f : -1);
 const sqName = (i) => FILES[i & 7] + ((i >> 3) + 1);
 const sqIndex = (s) => FILES.indexOf(s[0]) + (parseInt(s[1], 10) - 1) * 8;
 const other = (c) => (c === 'w' ? 'b' : 'w');
+const POCKET_TYPES = 'pnbrq';
+const emptyPocket = () => ({ p: 0, n: 0, b: 0, r: 0, q: 0 });
 
-function fromFEN(fen) {
-  const [placement, turn, castle, ep] = fen.trim().split(/\s+/);
-  const pos = { board: new Array(64).fill(null), turn: turn || 'w', castling: {}, ep: -1, nextId: 0 };
-  placement.split('/').forEach((row, i) => {
+/**
+ * Reads a FEN. For crazyhouse, pockets may follow the placement in brackets
+ * ("...RNBQKBNR[Qn] w ...") and "~" marks a promoted piece.
+ */
+function fromFEN(fen, variant = 'standard') {
+  const [placementField, turn, castle, ep] = fen.trim().split(/\s+/);
+  const [, placement, pocket] = placementField.match(/^([^[]*)(?:\[(.*)\])?$/);
+  const pos = { board: new Array(64).fill(null), turn: turn || 'w', castling: {}, ep: -1, nextId: 0, variant, pockets: null };
+  if (variant === 'crazyhouse') {
+    pos.pockets = { w: emptyPocket(), b: emptyPocket() };
+    for (const ch of (pocket || '').replace(/-/g, '')) pos.pockets[ch === ch.toUpperCase() ? 'w' : 'b'][ch.toLowerCase()]++;
+  }
+  placement.split('/').slice(0, 8).forEach((row, i) => {
     const rank = 7 - i;
     let file = 0;
     for (const ch of row) {
       if (/\d/.test(ch)) { file += Number(ch); continue; }
+      if (ch === '~') { pos.board[rank * 8 + file - 1].promoted = true; continue; }
       const color = ch === ch.toUpperCase() ? 'w' : 'b';
       pos.board[rank * 8 + file] = { type: ch.toLowerCase(), color, id: pos.nextId++ };
       file++;
@@ -41,6 +55,8 @@ function clone(pos) {
     castling: { ...pos.castling },
     ep: pos.ep,
     nextId: pos.nextId,
+    variant: pos.variant,
+    pockets: pos.pockets ? { w: { ...pos.pockets.w }, b: { ...pos.pockets.b } } : null,
   };
 }
 
@@ -127,18 +143,39 @@ function pseudoMoves(pos) {
       }
     }
   }
+  if (pos.pockets) {
+    // Crazyhouse drops: any pocket piece onto any empty square, except pawns on the back ranks.
+    for (const type of POCKET_TYPES) {
+      if (!pos.pockets[turn][type]) continue;
+      for (let sq = type === 'p' ? 8 : 0; sq < (type === 'p' ? 56 : 64); sq++) {
+        if (!board[sq]) moves.push({ from: -1, to: sq, piece: type, drop: true });
+      }
+    }
+  }
   return moves;
 }
 
 function makeMove(pos, m) {
   const next = clone(pos);
   const b = next.board;
+  if (m.drop) {
+    next.pockets[pos.turn][m.piece]--;
+    b[m.to] = { type: m.piece, color: pos.turn, id: next.nextId++ };
+    next.ep = -1;
+    next.turn = other(pos.turn);
+    return next;
+  }
   const piece = b[m.from];
-  if (m.capture !== undefined) b[m.capture] = null;
+  if (m.capture !== undefined) {
+    // In crazyhouse the capturer pockets the piece; promoted pieces revert to pawns.
+    const taken = b[m.capture];
+    if (next.pockets && taken.type !== 'k') next.pockets[pos.turn][taken.promoted ? 'p' : taken.type]++;
+    b[m.capture] = null;
+  }
   b[m.to] = piece;
   b[m.from] = null;
   if (m.castle) { b[m.rookTo] = b[m.rookFrom]; b[m.rookFrom] = null; }
-  if (m.promo) b[m.to] = { type: m.promo, color: piece.color, id: next.nextId++ };
+  if (m.promo) b[m.to] = { type: m.promo, color: piece.color, id: next.nextId++, promoted: true };
   if (piece.type === 'k') {
     if (piece.color === 'w') next.castling.K = next.castling.Q = false;
     else next.castling.k = next.castling.q = false;
@@ -166,13 +203,20 @@ function legalMoves(pos) {
   });
 }
 
-/** Finds the legal move that a SAN string such as "Nbd7", "exd6" or "e8=Q+" describes. */
+/** Finds the legal move that a SAN string such as "Nbd7", "exd6", "e8=Q+" or the drop "N@f3" describes. */
 function moveFromSan(pos, san) {
   const clean = san.replace(/[+#!?]+$/, '').replace(/0/g, 'O');
   const legal = legalMoves(pos);
   if (clean === 'O-O' || clean === 'O-O-O') {
     const m = legal.find((x) => x.castle === (clean === 'O-O' ? 'K' : 'Q'));
     if (!m) throw new Error(`Castling "${san}" is not legal here`);
+    return m;
+  }
+  const dropMt = clean.match(/^([PNBRQ])?@([a-h][1-8])$/);
+  if (dropMt) {
+    const type = (dropMt[1] || 'P').toLowerCase();
+    const m = legal.find((x) => x.drop && x.piece === type && x.to === sqIndex(dropMt[2]));
+    if (!m) throw new Error(`The drop "${san}" is not legal here`);
     return m;
   }
   const mt = clean.match(/^([NBRQK])?([a-h])?([1-8])?x?([a-h][1-8])(?:=?([NBRQnbrq]))?$/);
@@ -182,7 +226,7 @@ function moveFromSan(pos, san) {
   const toSq = sqIndex(to);
   const want = promo ? promo.toLowerCase() : null;
   const found = legal.filter((m) =>
-    m.piece === type && m.to === toSq &&
+    !m.drop && m.piece === type && m.to === toSq &&
     (!ff || (m.from & 7) === FILES.indexOf(ff)) &&
     (!fr || m.from >> 3 === Number(fr) - 1) &&
     (m.promo || null) === want
@@ -195,14 +239,15 @@ function moveFromSan(pos, san) {
  * Replays a list of SAN moves and describes what happened on each ply,
  * in terms of stable piece ids that the renderer can animate.
  */
-function replay(sanMoves, fen = START_FEN) {
-  let pos = fromFEN(fen);
+function replay(sanMoves, fen = START_FEN, variant = 'standard') {
+  let pos = fromFEN(fen, variant);
   const initial = pos;
   const plies = [];
   sanMoves.forEach((san, i) => {
     const m = moveFromSan(pos, san);
     const next = makeMove(pos, m);
-    const moved = [{ id: pos.board[m.from].id, from: m.from, to: m.to }];
+    const moved = m.drop ? [] : [{ id: pos.board[m.from].id, from: m.from, to: m.to }];
+    const drop = m.drop ? { id: next.board[m.to].id, type: m.piece, color: pos.turn, square: m.to } : null;
     if (m.castle) moved.push({ id: pos.board[m.rookFrom].id, from: m.rookFrom, to: m.rookTo });
     const captured = m.capture !== undefined ? pos.board[m.capture].id : null;
     const promotion = m.promo
@@ -220,6 +265,7 @@ function replay(sanMoves, fen = START_FEN) {
       moved,
       captured,
       promotion,
+      drop,
       check,
       mate,
       checkedKing: check ? kingSquare(next.board, next.turn) : -1,
@@ -239,4 +285,4 @@ function perft(pos, depth) {
   return n;
 }
 
-module.exports = { START_FEN, fromFEN, legalMoves, makeMove, moveFromSan, replay, perft, inCheck, sqName, sqIndex };
+module.exports = { START_FEN, POCKET_TYPES, fromFEN, legalMoves, makeMove, moveFromSan, replay, perft, inCheck, sqName, sqIndex };
