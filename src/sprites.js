@@ -13,6 +13,9 @@ const PIECES = {
 // The white flag a king raises when its player resigns.
 const FLAG = ['######.', '######.', '######.', '######.', '#......', '#......', '#......', '#......', '#......'];
 
+// The stopwatch that rings beside a king whose clock ran out. Its hand points to 12.
+const STOPWATCH = ['..###..', '...#...', '.#####.', '###.###', '###.###', '#######', '#######', '.#####.'];
+
 /** Pads the bitmap by one pixel and returns { fill, outline } bitmaps. */
 function withOutline(rows) {
   const h = rows.length + 2;
@@ -51,4 +54,4 @@ function bitmapPath(rows, px) {
   return d;
 }
 
-module.exports = { PIECES, FLAG, withOutline, bitmapPath };
+module.exports = { PIECES, FLAG, STOPWATCH, withOutline, bitmapPath };

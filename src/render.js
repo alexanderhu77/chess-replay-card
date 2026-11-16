@@ -1,7 +1,7 @@
 'use strict';
 
 const { replay, POCKET_TYPES } = require('./chess');
-const { PIECES, FLAG, withOutline, bitmapPath } = require('./sprites');
+const { PIECES, FLAG, STOPWATCH, withOutline, bitmapPath } = require('./sprites');
 
 const S = 32;          // square size
 const PAD = 16;
@@ -52,12 +52,14 @@ const PALETTES = {
     whiteFill: '#ffffff', whiteLine: '#1f2328', blackFill: '#1f2328', blackLine: '#ffffff',
     move: '#2da44e', check: '#cf222e', text: '#1f2328', muted: '#656d76', accent: '#1a7f37',
     drop: '#218bff', gain: '#a475f9', gold: '#d4a72c', goldText: '#9a6700', wood: '#c49a5e', woodDark: '#7d5c2e', woodLight: '#ecd4a4',
+    stopwatch: '#6e4a2a',
   },
   dark: {
     bg: '#0d1117', lightSq: '#3b4450', darkSq: '#262c36', frame: '#30363d',
     whiteFill: '#f0f6fc', whiteLine: '#0d1117', blackFill: '#0d1117', blackLine: '#c9d1d9',
     move: '#2ea043', check: '#f85149', text: '#e6edf3', muted: '#8b949e', accent: '#3fb950',
     drop: '#388bfd', gain: '#a371f7', gold: '#d4a72c', goldText: '#d4a72c', wood: '#a8824c', woodDark: '#5f4523', woodLight: '#d2b07a',
+    stopwatch: '#5c3e23',
   },
 };
 
@@ -375,6 +377,7 @@ function render(game, options = {}) {
   // its side. Nothing happens until the last move has landed, and the king is itself again
   // before the next replay.
   const loser = shown.length ? { '1-0': 'b', '0-1': 'w' }[game.result] : undefined;
+  const [sinkFrom, sinkTo] = [0.72, 1.57];   // when the losing side starts and finishes sinking, in seconds after the last move
   const defeat = game.termination === 'mate' ? 'mate' : /resign/.test(game.termination) ? 'resign' : /time/.test(game.termination) ? 'time' : null;
   // `steps` pairs a number of seconds after the last move with a style. The first style is how
   // things rest until then, and the last is held until the replay ends.
@@ -402,9 +405,21 @@ function render(game, options = {}) {
       );
     }
     if (defeat === 'time') {
-      // The king blinks twice.
+      // The king blinks twice, while a chocolate-brown stopwatch pops up beside it, like the flag,
+      // and rings until the losing side has finished sinking.
       afterLastMove('ke', [[0.12, 'opacity:1'], [0.27, 'opacity:0.25'], [0.42, 'opacity:1'], [0.57, 'opacity:0.25'], [0.72, 'opacity:1']], 'linear');
-      return `<g class="ke">${king}</g>`;
+      const { fill, outline, width, height } = withOutline(STOPWATCH);
+      const [cx, cy] = [(width * 1.5) / 2, (height * 1.5) / 2];
+      const pose = (y, opacity, degrees = 0) => `transform:translate(0px,${y}px) translate(${cx}px,${cy}px) rotate(${degrees}deg) translate(${-cx}px,${-cy}px);opacity:${opacity}`;
+      const pop = [[0.22, pose(7, 0)], [0.44, pose(-2, 1)], [0.57, pose(1, 1)], [0.68, pose(0, 1)]];
+      const swings = Math.floor((sinkTo - 0.74) / 0.06);
+      const ring = Array.from({ length: swings }, (_, k) => [0.74 + k * 0.06, pose(0, 1, (k % 2 ? 1 : -1) * (k < swings - 2 ? 16 : 10))]);
+      ring.push([sinkTo, pose(0, 1, 0)]);
+      afterLastMove('kc', [...pop, ...ring], 'ease-in-out');
+      return (
+        `<g class="ke">${king}</g><g transform="translate(${S - 15} 0)"><g class="kc">` +
+        `<path d="${bitmapPath(outline, 1.5)}" fill="${pal.whiteLine}"/><path d="${bitmapPath(fill, 1.5)}" fill="${pal.stopwatch}"/></g></g>`
+      );
     }
     return king;
   };
@@ -451,7 +466,7 @@ function render(game, options = {}) {
       sinking.add(name);
       const shifted = (y, opacity) => `transform:translate(0px,${y}px);opacity:${opacity}`;
       const leaves = clearsAt(wave) - lastT;
-      afterLastMove(name, [[0.72, shifted(0, 1)], [1.57, shifted(7, 0.3)], [leaves - 0.005, shifted(7, 0.3)], [leaves, shifted(7, 0)]], 'linear');
+      afterLastMove(name, [[sinkFrom, shifted(0, 1)], [sinkTo, shifted(7, 0.3)], [leaves - 0.005, shifted(7, 0.3)], [leaves, shifted(7, 0)]], 'linear');
     }
     return `<g class="${name}" transform="translate(0 7)" opacity=".3">${el}</g>`;
   };
@@ -591,10 +606,24 @@ function render(game, options = {}) {
       `.eo{${loop('eo', 'linear')}}`
   );
   const bannerY = S * 3.05;
+  // After a timeout a small stopwatch stands before the second line, centred on its capitals,
+  // and the two are centred together under the first line. The text starts a fixed gap after
+  // the stopwatch, so the gap holds even where the monospace letters are narrower than 0.6em.
+  const howLine = () => {
+    const baseline = bannerY + 45;
+    const text = (x, anchor) => `<text x="${x}" y="${baseline}"${anchor} font-size="10" letter-spacing="2" class="m">${how}</text>`;
+    if (!(defeat === 'time' && loser)) return text(S * 4, ' text-anchor="middle"');
+    const [px, gap, caps] = [1.25, 4, 7.4];
+    const iconWidth = STOPWATCH[0].length * px;
+    const textWidth = how.length * (0.6 * 10 + 2) - 2;
+    const left = Math.round(S * 4 - (iconWidth + gap + textWidth) / 2);
+    const top = baseline - caps / 2 - (STOPWATCH.length * px) / 2;
+    return `<path transform="translate(${left} ${num(top)})" d="${bitmapPath(STOPWATCH, px)}" fill="${pal.muted}"/>` + text(num(left + iconWidth + gap), '');
+  };
   const endBanner =
     `<g class="eo" opacity="0"><rect x="${S * 1.5}" y="${bannerY}" width="${S * 5}" height="${S * (how ? 1.9 : 1.4)}" fill="${pal.bg}" opacity=".88"/>` +
     `<text x="${S * 4}" y="${bannerY + 26}" text-anchor="middle" font-size="15" font-weight="700" letter-spacing="2" class="a">${winner}</text>` +
-    (how ? `<text x="${S * 4}" y="${bannerY + 45}" text-anchor="middle" font-size="10" letter-spacing="2" class="m">${how}</text>` : '') +
+    (how ? howLine() : '') +
     `</g>`;
   body.push(`</g>`);
 

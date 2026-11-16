@@ -439,3 +439,40 @@ test("crazyhouse: a promoted piece's badge bounces with it", () => {
   });
   assert.match(render(game, { perspective: 'alice' }), /<g class="bo\d+"><use[^>]*href="#qw"[^>]*\/><use href="#pw" transform="translate\(22 0\) scale\(\.45\)"\/><\/g>/);
 });
+
+test('after a timeout a stopwatch pops up beside the losing king and rings, then sinks with it', () => {
+  const lost = (termination) => render({ ...demoGame(), moves: ['e4', 'e5', 'Nf3'], result: '0-1', termination });
+  for (const termination of ['outoftime', 'timeout']) {
+    const svg = lost(termination);
+    assert.match(svg, /<g class="sk\d"[^>]*><g class="ke"><use [^>]*href="#kw"[^>]*\/><\/g><g transform="translate\(17 0\)"><g class="kc"><path [^>]*\/><path [^>]*fill="#6e4a2a"\/><\/g><\/g><\/g>/, 'a brown stopwatch beside the king, inside its side\'s sink');
+    assert.match(render({ ...demoGame(), moves: ['e4', 'e5', 'Nf3'], result: '0-1', termination }, { palette: 'dark' }), /<g class="kc"><path [^>]*\/><path [^>]*fill="#5c3e23"\/>/, 'a darker brown in the dark theme');
+    const frames = svg.match(/@keyframes kc\{(.*?)\}\.kc\{/)[1];
+    assert.match(frames, /^0%\{transform:translate\(0px,7px\)[^}]*rotate\(0deg\)[^}]*;opacity:0\}/, 'hidden until the last move has landed');
+    assert.match(frames, /rotate\(-16deg\).*rotate\(16deg\).*rotate\(-16deg\).*rotate\(16deg\)/, 'it rings');
+    assert.match(frames, /100%\{transform:translate\(0px,7px\)[^}]*;opacity:0\}$/, 'hidden again for the next replay');
+  }
+  for (const termination of ['mate', 'resign', 'abandoned']) assert.doesNotMatch(lost(termination), /class="kc"/);
+  assert.doesNotMatch(render({ ...demoGame(), result: '1/2-1/2', termination: 'timevsinsufficient' }), /class="kc"/, 'not in a draw');
+});
+
+test("after a timeout the banner's second line has a stopwatch before it, centred on the capitals", () => {
+  const svg = render({ ...demoGame(), moves: ['e4', 'e5', 'Nf3'], result: '0-1', termination: 'outoftime' });
+  const [, left, top, textX, baseline] = svg.match(/<path transform="translate\(([\d.]+) ([\d.]+)\)" d="[^"]*" fill="#656d76"\/><text x="([\d.]+)" y="([\d.]+)" font-size="10" letter-spacing="2" class="m">TIME OUT<\/text>/).map(Number);
+  assert.strictEqual(Number((textX - (left + 7 * 1.25)).toFixed(3)), 4, 'a 4px gap between the stopwatch and the text');
+  assert.strictEqual(Number((top + 5 - (baseline - 3.7)).toFixed(3)), 0, 'its middle level with the middle of the capitals');
+  const groupMiddle = (left + textX + 8 * 'TIME OUT'.length - 2) / 2;
+  assert.ok(Math.abs(groupMiddle - 128) <= 0.5, 'the stopwatch and text are centred together under the first line');
+  assert.match(render(demoGame()), /<text x="128" y="[\d.]+" text-anchor="middle" font-size="10" letter-spacing="2" class="m">CHECKMATE<\/text>/, 'other endings keep a plain centred line');
+});
+
+test('the stopwatch rings until the losing side has finished sinking', () => {
+  const svg = render({ ...demoGame(), moves: ['e4', 'e5', 'Nf3'], result: '0-1', termination: 'outoftime' });
+  const D = Number(svg.match(/\.kc\{animation:kc ([\d.]+)s/)[1]);
+  const sunk = Number(svg.match(/@keyframes sk\d\{0%\{[^}]*\}[\d.]+%\{[^}]*\}([\d.]+)%\{transform:translate\(0px,7px\);opacity:0\.3\}/)[1]);
+  const frames = svg.match(/@keyframes kc\{(.*?)\}\.kc\{/)[1];
+  const swings = [...frames.matchAll(/([\d.]+)%\{transform:[^}]*rotate\((-?\d+)deg\)[^}]*;opacity:1\}/g)].filter((m) => m[2] !== '0').map((m) => Number(m[1]));
+  assert.ok(swings.length >= 12, 'it keeps swinging through the whole fade');
+  const lastSwing = Math.max(...swings);
+  assert.ok(lastSwing < sunk && ((sunk - lastSwing) / 100) * D < 0.15, 'its last swing comes just before the side has sunk');
+  assert.match(frames, new RegExp(`${String(sunk).replace('.', '\\.')}%\\{transform:translate\\(0px,0px\\)[^}]*rotate\\(0deg\\)[^}]*;opacity:1\\}`), 'and it comes to rest just as the side has sunk');
+});
