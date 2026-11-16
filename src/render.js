@@ -286,7 +286,7 @@ function render(game, options = {}) {
   }
   body.push(
     `<g transform="translate(${BX} ${BY})">` +
-      `<rect x="-3" y="-3" width="${8 * S + 6}" height="${8 * S + 6}" rx="4" fill="${pal.frame}"/>` +
+      `<rect x="-3" y="-3" width="${8 * S + 6}" height="${8 * S + 6}" fill="${pal.frame}"/>` +
       `<rect width="${8 * S}" height="${8 * S}" fill="${pal.lightSq}"/>` +
       `<g fill="${pal.darkSq}">${squares.join('')}</g>`
   );
@@ -517,7 +517,7 @@ function render(game, options = {}) {
   );
   const bannerY = S * 3.05;
   const endBanner =
-    `<g class="eo" opacity="0"><rect x="${S * 1.5}" y="${bannerY}" width="${S * 5}" height="${S * (how ? 1.9 : 1.4)}" rx="6" fill="${pal.bg}" opacity=".88"/>` +
+    `<g class="eo" opacity="0"><rect x="${S * 1.5}" y="${bannerY}" width="${S * 5}" height="${S * (how ? 1.9 : 1.4)}" fill="${pal.bg}" opacity=".88"/>` +
     `<text x="${S * 4}" y="${bannerY + 26}" text-anchor="middle" font-size="15" font-weight="700" letter-spacing="2" class="a">${winner}</text>` +
     (how ? `<text x="${S * 4}" y="${bannerY + 45}" text-anchor="middle" font-size="10" letter-spacing="2" class="m">${how}</text>` : '') +
     `</g>`;
@@ -691,7 +691,7 @@ function render(game, options = {}) {
       `.vt{animation:vt ${num(doorsLast)}s ease-in forwards}.vb{animation:vb ${num(doorsLast)}s ease-in forwards}.vv{animation:vv ${INTRO.doorsFrom}s linear forwards}`
   );
   const intro =
-    `<clipPath id="bc"><rect x="-3" y="-3" width="${B + 6}" height="${B + 6}" rx="4"/></clipPath><g clip-path="url(#bc)">` +
+    `<clipPath id="bc"><rect x="-3" y="-3" width="${B + 6}" height="${B + 6}"/></clipPath><g clip-path="url(#bc)">` +
     `<g class="vt" opacity="0"><rect x="-3" y="-3" width="${B + 6}" height="${open}" fill="${pal.bg}"/><use href="#k${topSide}" x="${B / 2 - 11}" y="36"/>` +
     `<text x="${B / 2}" y="86" text-anchor="middle" font-size="15" font-weight="700"${cardClass(topSide)}>${cardName(topSide)}</text></g>` +
     `<g class="vb" opacity="0"><rect x="-3" y="${B / 2}" width="${B + 6}" height="${open}" fill="${pal.bg}"/><use href="#k${bottomSide}" x="${B / 2 - 11}" y="${B - 60}"/>` +

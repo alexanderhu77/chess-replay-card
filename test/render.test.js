@@ -342,3 +342,14 @@ test("the featured player's name is gold, in the panel and on the intro card", (
   assert.strictEqual(svg.match(/class="g"/g).length, 2, "the opponent's name stays plain");
   assert.doesNotMatch(render(demoGame()), /class="g"/, 'no gold name when the card is for nobody');
 });
+
+test('the board frame, intro clip and end banner have square corners; only the wooden rollers are rounded', () => {
+  const svg = render(demoGame(), { perspective: 'Paul Morphy' });
+  assert.match(svg, /<rect x="-3" y="-3" width="262" height="262" fill="#d0d7de"\/>/, 'square board frame');
+  assert.match(svg, /<clipPath id="bc"><rect x="-3" y="-3" width="262" height="262"\/><\/clipPath>/, 'square intro clip');
+  assert.match(svg, /<g class="eo" opacity="0"><rect [^>]*fill="#ffffff" opacity="\.88"\/>/);
+  assert.doesNotMatch(svg.match(/<g class="eo" opacity="0"><rect [^>]*>/)[0], /rx=/, 'square end banner');
+  const rounded = svg.match(/<rect [^>]*rx="[^"]*"[^>]*>/g);
+  assert.strictEqual(rounded.length, 6, 'two rollers, each with a rounded body and two rounded caps');
+  assert.ok(rounded.every((r) => /fill="#(c49a5e|7d5c2e)"/.test(r)), 'every rounded rect is part of a roller');
+});
