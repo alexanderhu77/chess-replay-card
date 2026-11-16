@@ -371,8 +371,9 @@ function render(game, options = {}) {
     return `translate(${num(x - BX - SPRITE_DX * POCKET_SCALE)}px,${num(y - BY - SPRITE_DY * POCKET_SCALE)}px) scale(${POCKET_SCALE})`;
   };
   // The king that lost acts out how the game ended: knocked over by checkmate, raising a white
-  // flag to resign, or blinking and sinking away when its clock ran out. Nothing happens until
-  // the last move has landed, and the king is itself again before the next replay.
+  // flag to resign, or blinking when its clock ran out. Then it sinks and fades with the rest of
+  // its side. Nothing happens until the last move has landed, and the king is itself again
+  // before the next replay.
   const loser = shown.length ? { '1-0': 'b', '0-1': 'w' }[game.result] : undefined;
   const defeat = game.termination === 'mate' ? 'mate' : /resign/.test(game.termination) ? 'resign' : /time/.test(game.termination) ? 'time' : null;
   // `steps` pairs a number of seconds after the last move with a style. The first style is how
@@ -401,9 +402,9 @@ function render(game, options = {}) {
       );
     }
     if (defeat === 'time') {
-      // The king blinks twice, then sinks a little and fades.
-      afterLastMove('ke', [[0.12, shifted(0, 1)], [0.27, shifted(0, 0.25)], [0.42, shifted(0, 1)], [0.57, shifted(0, 0.25)], [0.72, shifted(0, 1)], [1.57, shifted(7, 0.3)]], 'linear');
-      return `<g class="ke" transform="translate(0 7)" opacity=".3">${king}</g>`;
+      // The king blinks twice.
+      afterLastMove('ke', [[0.12, 'opacity:1'], [0.27, 'opacity:0.25'], [0.42, 'opacity:1'], [0.57, 'opacity:0.25'], [0.72, 'opacity:1']], 'linear');
+      return `<g class="ke">${king}</g>`;
     }
     return king;
   };
@@ -413,8 +414,8 @@ function render(game, options = {}) {
   // has cleared, so no part of it is left hanging over an empty square.
   const winningSide = loser === 'b' ? 'w' : loser === 'w' ? 'b' : null;
   const bounceStart = uniformSampler(`${game.moves.join(' ')} jump`);
-  const bounce = (tr, sprite) => {
-    if (BOUNCE_PIXELS <= 0 || tr.color !== winningSide || tr.vanish !== null) return sprite;
+  const bounce = (tr, el) => {
+    if (BOUNCE_PIXELS <= 0 || tr.color !== winningSide || tr.vanish !== null) return el;
     const [col, row] = [sqX(tr.last) / S, sqY(tr.last) / S];
     const leaves = Math.min(clearsAt(clearWave(row * 8 + col)), row > 0 ? clearsAt(clearWave((row - 1) * 8 + col)) : Infinity);
     // Every moment on the ground shares one keyframe rule and every moment in the air another,
@@ -426,7 +427,7 @@ function render(game, options = {}) {
       keep(air, t + BOUNCE_SECONDS * 0.425);
       keep(ground, t + BOUNCE_SECONDS * 0.85);
     }
-    if (!air.length) return sprite;
+    if (!air.length) return el;
     const at = (list) => [...new Set(list.map(pct))].map((p) => `${p}%`).join(',');
     const name = `bo${tr.id}`;
     css.push(
@@ -435,14 +436,46 @@ function render(game, options = {}) {
         `0%{opacity:1}${pct(leaves - 0.005)}%{opacity:1}${pct(leaves)}%,${pct(resetAt - 0.01)}%{opacity:0}${pct(resetAt)}%{opacity:1}}` +
         `.${name}{${loop(name, 'linear')}}`
     );
-    return `<g class="${name}">${sprite}</g>`;
+    return `<g class="${name}">${el}</g>`;
+  };
+  // The losing side, king and all, sinks a little and fades as one, once its king has acted out
+  // the ending. A sunk piece reaches down into the square below, so it leaves as soon as its own
+  // square or that one has cleared. Pieces that leave together share one animation.
+  const sinking = new Set();
+  const sink = (tr, el) => {
+    if (tr.color !== loser || tr.vanish !== null) return el;
+    const [col, row] = [sqX(tr.last) / S, sqY(tr.last) / S];
+    const wave = Math.min(clearWave(row * 8 + col), row < 7 ? clearWave((row + 1) * 8 + col) : Infinity);
+    const name = `sk${wave}`;
+    if (!sinking.has(name)) {
+      sinking.add(name);
+      const shifted = (y, opacity) => `transform:translate(0px,${y}px);opacity:${opacity}`;
+      const leaves = clearsAt(wave) - lastT;
+      afterLastMove(name, [[0.72, shifted(0, 1)], [1.57, shifted(7, 0.3)], [leaves - 0.005, shifted(7, 0.3)], [leaves, shifted(7, 0)]], 'linear');
+    }
+    return `<g class="${name}" transform="translate(0 7)" opacity=".3">${el}</g>`;
+  };
+  // In a draw the two kings nod to each other: each leans in toward the other, pauses and
+  // straightens up again. Kings on the same file, one straight above the other, both lean
+  // toward the middle of the board instead.
+  const drawn = shown.length > 0 && game.result === '1/2-1/2';
+  const kingX = {};
+  for (const t of tracks.values()) if (t.type === 'k') kingX[t.color] = sqX(t.last);
+  const nod = (tr, el) => {
+    if (!drawn || tr.type !== 'k') return el;
+    const x = sqX(tr.last);
+    const toward = Math.sign(kingX[tr.color === 'w' ? 'b' : 'w'] - x) || (x < 4 * S ? 1 : -1);
+    const leaning = (degrees) => `transform:translate(${S / 2}px,27px) rotate(${degrees}deg) translate(${-S / 2}px,-27px)`;
+    const name = `kd${tr.color}`;
+    afterLastMove(name, [[0.12, leaning(0)], [0.4, leaning(16 * toward)], [0.75, leaning(16 * toward)], [1.05, leaning(0)]], 'ease-in-out');
+    return `<g class="${name}">${el}</g>`;
   };
 
   const pieceEls = [];
   for (const tr of tracks.values()) {
     // A browser re-evaluates every running animation on every frame, even while nothing moves,
     // so a piece is only animated in the ways it needs: one that stays put all game gets no track
-    // of its own (though on the winning side it still bounces at the end).
+    // of its own (though at the end it may still bounce, sink or nod).
     const travels = tr.drop || tr.moves.length > 0;
     const fades = tr.appear !== null || tr.vanish !== null;
     // In crazyhouse a promoted piece turns back into a pawn when captured, so it carries a
@@ -451,9 +484,11 @@ function render(game, options = {}) {
     const rainDelay = INTRO.rain + ((7 - sqY(tr.sq0) / S) * 0.09 + (sqX(tr.sq0) / S) * 0.03) / INTRO_SPEED;
     const rain = tr.appear === null ? ` class="rn" style="animation-delay:${num(rainDelay)}s"` : '';
     const sprite = `<use${rain} href="#${tr.type}${tr.color}" x="${SPRITE_DX}" y="${SPRITE_DY}"/>`;
+    // The ending's effects move the piece and its badge together.
+    const figure = (tr.type === 'k' && tr.color === loser ? kingEnding(sprite) : nod(tr, sprite)) + badge;
     const piece =
       `transform="translate(${sqX(tr.last)} ${sqY(tr.last)})"${tr.vanish === null ? '' : ' opacity="0"'}>` +
-      `${tr.type === 'k' && tr.color === loser ? kingEnding(sprite) : bounce(tr, sprite)}${badge}</g>`;
+      `${sink(tr, bounce(tr, figure))}</g>`;
     if (!travels && !fades) {
       pieceEls.push(`<g ${piece}`);
       continue;

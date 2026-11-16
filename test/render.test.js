@@ -143,7 +143,7 @@ test('the Lichess download stops at the first usable game', async () => {
 test('only pieces that move or change are animated, and the move text is one animation', () => {
   const svg = render(demoGame());
   const animated = svg.match(/<g class="p\d+"/g).length;
-  const still = svg.match(/<g transform="translate\(\d+ \d+\)">(?:<g class="(?:ke|bo\d+)"[^>]*>)?<use class="rn"/g).length;
+  const still = svg.match(/<g transform="translate\(\d+ \d+\)">(?:<g class="(?:ke|bo\d+|sk\d|kd[wb])"[^>]*>)*<use class="rn"/g).length;
   assert.strictEqual(animated + still, 32, 'every piece is drawn');
   assert.ok(still >= 8, 'pieces that never move have no animation');
   assert.strictEqual(svg.match(/class="mv"/g).length, 1, 'one scrolling strip shows the current move');
@@ -198,7 +198,7 @@ test('the card opens with scrolls, a versus card and falling pieces, once', () =
   assert.match(svg, /<g class="vt" opacity="0">.*?>Duke Karl \/ Count Iso…<\/text><\/g><g class="vb" opacity="0">.*?>Paul Morphy<\/text><\/g><text class="vv a"[^>]*>VS<\/text>/);
   assert.strictEqual(svg.match(/<use class="rn" style="animation-delay:[\d.]+s"/g).length, 32);
   assert.match(svg, /<g transform="translate\(0 192\)"><g class="bo\d+"><use class="rn" style="animation-delay:2\.261s" href="#pw"/);
-  assert.match(svg, /<g transform="translate\(224 0\)"><use class="rn" style="animation-delay:2\.838s" href="#rb"/);
+  assert.match(svg, /<g transform="translate\(224 0\)"><g class="sk\d"[^>]*><use class="rn" style="animation-delay:2\.838s" href="#rb"/);
   for (const name of ['sl', 'sr', 'rl', 'rr', 'vt', 'vb', 'vv']) assert.match(svg, new RegExp(`\\.${name}\\{animation:${name} [\\d.]+s [a-z-]+ forwards\\}`));
   assert.match(svg, /\.rn\{animation:rn 0\.323s ease-in backwards\}/);
   assert.strictEqual(svg.match(/ infinite backwards\}/g).length, svg.match(/ infinite/g).length);
@@ -301,10 +301,10 @@ test('the king that lost acts out how the game ended', () => {
     assert.match(lost(termination), /href="#kw" x="5" y="4"\/><g transform="translate\(17 0\)"><g class="ke"><path [^>]*\/><path [^>]*fill="#ffffff"\/><\/g><\/g>/);
     assert.match(lost(termination), /@keyframes ke\{0%\{transform:translate\(0px,7px\);opacity:0\}.*?100%\{transform:translate\(0px,7px\);opacity:0\}\}\.ke\{/);
   }
-  // Out of time: White's king ends a little lower and faded.
+  // Out of time: White's king blinks, then sinks with the rest of its side.
   for (const termination of ['outoftime', 'timeout']) {
-    assert.match(lost(termination), /<g class="ke" transform="translate\(0 7\)" opacity="\.3"><use class="rn" [^>]*href="#kw"/);
-    assert.match(lost(termination), /@keyframes ke\{0%\{transform:translate\(0px,0px\);opacity:1\}.*?%\{transform:translate\(0px,7px\);opacity:0\.3\}/);
+    assert.match(lost(termination), /<g class="sk\d" transform="translate\(0 7\)" opacity="\.3"><g class="ke"><use class="rn" [^>]*href="#kw"/);
+    assert.match(lost(termination), /@keyframes ke\{0%\{opacity:1\}[\d.]+%\{opacity:1\}[\d.]+%\{opacity:0\.25\}.*?100%\{opacity:1\}\}\.ke\{/);
   }
   // Any other ending leaves both kings alone.
   for (const other of [{ result: '1/2-1/2', termination: 'stalemate' }, { result: '1/2-1/2', termination: 'timevsinsufficient' }, { result: '0-1', termination: 'abandoned' }]) {
@@ -387,4 +387,55 @@ test('the winning side bounces from just after the last move until the board cle
   assert.strictEqual(black.length, 16);
   assert.ok(black.every((m) => m[1] === 'b'));
   assert.doesNotMatch(render({ ...demoGame(), moves: ['e4', 'e5'], result: '1/2-1/2', termination: 'draw' }), /class="bo\d+"/, 'no one bounces after a draw');
+});
+
+test('the losing side sinks and fades as one, and each piece leaves as the board clears under it', () => {
+  const mate = render(demoGame());
+  const sunk = [...mate.matchAll(/<g class="(sk\d)" transform="translate\(0 7\)" opacity="\.3">(?:<g class="ke"[^>]*>)?<use class="rn"[^>]*href="#[a-z]([wb])"/g)];
+  assert.strictEqual(sunk.length, 10, "Black's ten pieces left on the board sink, the toppled king too");
+  assert.ok(sunk.every((m) => m[2] === 'b'), 'only the losing side sinks');
+  const starts = new Set();
+  for (const name of new Set(sunk.map((m) => m[1]))) {
+    const frames = mate.match(new RegExp(`@keyframes ${name}\\{(.*?)\\}\\.${name}\\{`))[1];
+    starts.add(frames.match(/^0%\{[^}]*\}([\d.]+)%/)[1]);
+    assert.match(frames, /%\{transform:translate\(0px,7px\);opacity:0\.3\}/, 'sunk 7px and faded to 30%');
+    const clears = mate.match(new RegExp(`@keyframes dg${name.slice(2)}\\{0%\\{opacity:0\\}([\\d.]+)%`))[1];
+    assert.ok(frames.includes(`${clears}%{transform:translate(0px,7px);opacity:0}`), `${name} leaves just as its wave of squares clears`);
+  }
+  assert.strictEqual(starts.size, 1, 'the whole side starts sinking at the same moment');
+
+  const lost = (termination) => render({ ...demoGame(), moves: ['e4', 'e5', 'Nf3'], result: '0-1', termination });
+  assert.match(lost('resign'), /<g class="sk\d"[^>]*><use [^>]*href="#kw"[^>]*\/><g transform="translate\(17 0\)"><g class="ke">/, 'the flag sinks with its king');
+  for (const termination of ['resign', 'outoftime', 'abandoned']) {
+    assert.strictEqual(lost(termination).match(/<g class="sk\d"/g).length, 16, `White's whole side sinks after ${termination}`);
+  }
+  assert.doesNotMatch(render({ ...demoGame(), moves: ['e4', 'e5'], result: '1/2-1/2', termination: 'draw' }), /class="sk\d"/, 'nobody sinks in a draw');
+});
+
+test('in a draw the kings nod to each other and straighten up again', () => {
+  const degrees = (svg, name) => svg.match(new RegExp(`@keyframes ${name}\\{(.*?)\\}\\.${name}\\{`))[1].match(/rotate\((-?\d+)deg\)/g).map((r) => Number(r.match(/-?\d+/)[0]));
+  const draw = render({ ...demoGame(), moves: demoGame().moves.slice(0, -1), result: '1/2-1/2', termination: 'agreed' });
+  assert.match(draw, /<g class="kdw"><use class="rn"[^>]*href="#kw"/);
+  assert.match(draw, /<g class="kdb"><use class="rn"[^>]*href="#kb"/);
+  const [white, black] = [degrees(draw, 'kdw'), degrees(draw, 'kdb')];
+  assert.strictEqual(Math.max(...white), 16, "White's king on c1 leans right, toward Black's on e8");
+  assert.strictEqual(Math.min(...black), -16, "Black's king on e8 leans left, toward White's on c1");
+  for (const list of [white, black]) {
+    assert.strictEqual(list[0], 0, 'upright before the nod');
+    assert.strictEqual(list[list.length - 1], 0, 'upright again after it');
+  }
+  assert.doesNotMatch(draw, /class="(?:bo|sk)\d/, 'nobody bounces or sinks in a draw');
+  const sameFile = render({ ...demoGame(), moves: ['e4', 'e5', 'Ke2', 'Ke7', 'Ke1', 'Ke8'], result: '1/2-1/2', termination: 'agreed' });
+  assert.strictEqual(Math.min(...degrees(sameFile, 'kdw')), -16, 'kings on the e-file both lean toward the middle of the board');
+  assert.strictEqual(Math.min(...degrees(sameFile, 'kdb')), -16);
+  assert.doesNotMatch(render(demoGame()), /class="kd[wb]"/, 'no nod after a win');
+});
+
+test("crazyhouse: a promoted piece's badge bounces with it", () => {
+  const game = normalizeLichess({
+    id: 'zhbadge1', variant: 'crazyhouse', speed: 'blitz', status: 'resign', winner: 'white', createdAt: 1700000000000,
+    players: { white: { user: { name: 'alice' } }, black: { user: { name: 'bob' } } },
+    moves: 'e4 d5 exd5 Nf6 d6 Nc6 dxc7 Bd7 c8=Q e6',
+  });
+  assert.match(render(game, { perspective: 'alice' }), /<g class="bo\d+"><use[^>]*href="#qw"[^>]*\/><use href="#pw" transform="translate\(22 0\) scale\(\.45\)"\/><\/g>/);
 });
