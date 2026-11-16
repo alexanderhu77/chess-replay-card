@@ -672,10 +672,10 @@ function render(game, options = {}) {
   const cardName = (side) => esc(trunc((side === 'w' ? game.white : game.black).name, 22));
   const cardClass = (side) => (me && (side === 'w' ? game.white : game.black).name.toLowerCase() === me ? ' class="g"' : '');
   const open = B / 2 + 3;
-  const rod = (cls) =>
+  const rod = (cls, mirrored) =>
     `<g class="${cls}" opacity="0"><rect x="-6" y="-10" width="12" height="${B + 20}" rx="3" fill="${pal.wood}"/>` +
     `<rect x="-7" y="-12" width="14" height="8" rx="2" fill="${pal.woodDark}"/><rect x="-7" y="${B + 4}" width="14" height="8" rx="2" fill="${pal.woodDark}"/>` +
-    `<rect x="-3" y="-3" width="2" height="${B + 6}" fill="${pal.woodLight}" opacity=".7"/></g>`;
+    `<rect x="${mirrored ? 1 : -3}" y="-3" width="2" height="${B + 6}" fill="${pal.woodLight}" opacity=".7"/></g>`;
   const [rollFrom, rollTo] = [share(INTRO.rollFrom, INTRO.rodsGone), share(INTRO.rollTo, INTRO.rodsGone)];
   const doorsLast = INTRO.doorsTo + 0.05 / INTRO_SPEED;
   const [doorsFrom, doorsTo] = [share(INTRO.doorsFrom, doorsLast), share(INTRO.doorsTo, doorsLast)];
@@ -698,7 +698,7 @@ function render(game, options = {}) {
     `<text x="${B / 2}" y="${B - 74}" text-anchor="middle" font-size="15" font-weight="700"${cardClass(bottomSide)}>${cardName(bottomSide)}</text></g>` +
     `<text class="vv a" x="${B / 2}" y="${B / 2 + 8}" text-anchor="middle" font-size="24" font-weight="700" letter-spacing="3" opacity="0">VS</text>` +
     `<rect class="sl" x="-3" y="-3" width="${open}" height="${B + 6}" fill="${pal.bg}" opacity="0"/>` +
-    `<rect class="sr" x="${B / 2}" y="-3" width="${open}" height="${B + 6}" fill="${pal.bg}" opacity="0"/></g>${rod('rl')}${rod('rr')}`;
+    `<rect class="sr" x="${B / 2}" y="-3" width="${open}" height="${B + 6}" fill="${pal.bg}" opacity="0"/></g>${rod('rl')}${rod('rr', true)}`;
 
   body.push(`<g transform="translate(${BX} ${BY})">${pieceLayer}${outro}${endBanner}${intro}</g>`);
 

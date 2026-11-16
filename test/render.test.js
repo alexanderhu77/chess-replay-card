@@ -353,3 +353,11 @@ test('the board frame, intro clip and end banner have square corners; only the w
   assert.strictEqual(rounded.length, 6, 'two rollers, each with a rounded body and two rounded caps');
   assert.ok(rounded.every((r) => /fill="#(c49a5e|7d5c2e)"/.test(r)), 'every rounded rect is part of a roller');
 });
+
+test("the intro's two wooden rollers mirror each other, with their light strips on the outer sides", () => {
+  const svg = render(demoGame(), { perspective: 'Paul Morphy' });
+  const strip = (cls) => svg.match(new RegExp(`<g class="${cls}" opacity="0">.*?<rect x="(-?\\d+)" y="-3" width="2" height="262" fill="#ecd4a4" opacity="\\.7"\\/><\\/g>`))[1];
+  assert.strictEqual(strip('rl'), '-3', 'left roller: strip just left of its centre');
+  assert.strictEqual(strip('rr'), '1', 'right roller: strip just right of its centre');
+  assert.strictEqual(Number(strip('rl')) + 2, -Number(strip('rr')), 'the strips are mirror images about each roller\'s centre');
+});
