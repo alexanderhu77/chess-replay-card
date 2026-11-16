@@ -4,6 +4,14 @@ const { parsePgn } = require('./pgn');
 
 const UA = 'chess-replay-card (+https://github.com/surya6032/chess-replay-card)';
 const cap = (s) => (s ? s[0].toUpperCase() + s.slice(1) : s);
+const sanList = (moves) => (moves || '').split(/\s+/).filter(Boolean);
+
+// A player's latest game is the newest with more than one move: aborted games, and ones
+// resigned straight away, have nothing to replay. A move is White's and Black's together, so a
+// game needs at least three half-moves (1. e4 e5 2. Nf3). A game asked for by id is shown
+// however short it is.
+const SHORTEST_GAME = 3;
+const longEnough = (moves) => moves.length >= SHORTEST_GAME;
 
 // Variants the replay engine can play through.
 const LICHESS_VARIANTS = ['standard', 'crazyhouse'];
@@ -63,7 +71,7 @@ function normalizeLichess(g, url) {
     clock,
     clocks: Array.isArray(g.clocks) && g.clock ? { start: g.clock.initial * 100, increment: g.clock.increment * 100, afterMove: g.clocks } : null,
     date: g.createdAt ? new Date(g.createdAt) : null,
-    moves: (g.moves || '').split(/\s+/).filter(Boolean),
+    moves: sanList(g.moves),
   };
 }
 
@@ -106,10 +114,10 @@ async function fetchLichess(username, gameId, variant) {
     return game;
   }
   const perf = wanted.length === 1 ? `&perfType=${LICHESS_PERF_TYPES[wanted[0]]}` : '';
-  const url = `https://lichess.org/api/games/user/${encodeURIComponent(username)}?max=10&opening=true&clocks=true&evals=false&moves=true${perf}`;
+  const url = `https://lichess.org/api/games/user/${encodeURIComponent(username)}?max=30&opening=true&clocks=true&evals=false&moves=true${perf}`;
   const res = await getJson(url, { Accept: 'application/x-ndjson' });
-  const game = await firstGame(res, (g) => wanted.includes(g.variant) && g.moves && !g.initialFen);
-  if (!game) throw new Error(`No recent ${wanted.join(' or ')} games found for Lichess user "${username}".`);
+  const game = await firstGame(res, (g) => wanted.includes(g.variant) && !g.initialFen && longEnough(sanList(g.moves)));
+  if (!game) throw new Error(`No recent ${wanted.join(' or ')} games longer than one move found for Lichess user "${username}".`);
   return normalizeLichess(game);
 }
 
@@ -132,29 +140,31 @@ async function fetchChessCom(username) {
   const months = (archives.archives || []).slice().reverse();
   for (const monthUrl of months.slice(0, 3)) {
     const { games = [] } = await (await getJson(monthUrl)).json();
-    const game = games.slice().reverse().find((g) => g.rules === 'chess' && g.pgn && !/\[SetUp "1"\]/.test(g.pgn));
-    if (!game) continue;
-    const { headers, moves } = parsePgn(game.pgn);
-    const result = headers.Result || '*';
-    const [base, inc] = String(game.time_control || '').split('+');
-    const clock = /^\d+$/.test(base) ? `${Number(base) / 60}+${inc || 0}` : null;
-    const loser = game.white.result === 'win' ? game.black.result : game.white.result;
-    return {
-      source: 'chess.com',
-      url: game.url,
-      white: { name: game.white.username, rating: game.white.rating || null },
-      black: { name: game.black.username, rating: game.black.rating || null },
-      result,
-      ending: headers.Termination || result,
-      termination: loser === 'checkmated' ? 'mate' : loser,
-      opening: openingFromEcoUrl(headers.ECOUrl),
-      timeClass: cap(game.time_class),
-      clock,
-      date: game.end_time ? new Date(game.end_time * 1000) : null,
-      moves,
-    };
+    for (const game of games.slice().reverse()) {
+      if (game.rules !== 'chess' || !game.pgn || /\[SetUp "1"\]/.test(game.pgn)) continue;
+      const { headers, moves } = parsePgn(game.pgn);
+      if (!longEnough(moves)) continue;
+      const result = headers.Result || '*';
+      const [base, inc] = String(game.time_control || '').split('+');
+      const clock = /^\d+$/.test(base) ? `${Number(base) / 60}+${inc || 0}` : null;
+      const loser = game.white.result === 'win' ? game.black.result : game.white.result;
+      return {
+        source: 'chess.com',
+        url: game.url,
+        white: { name: game.white.username, rating: game.white.rating || null },
+        black: { name: game.black.username, rating: game.black.rating || null },
+        result,
+        ending: headers.Termination || result,
+        termination: loser === 'checkmated' ? 'mate' : loser,
+        opening: openingFromEcoUrl(headers.ECOUrl),
+        timeClass: cap(game.time_class),
+        clock,
+        date: game.end_time ? new Date(game.end_time * 1000) : null,
+        moves,
+      };
+    }
   }
-  throw new Error(`No recent standard games found for Chess.com user "${username}".`);
+  throw new Error(`No recent standard games longer than one move found for Chess.com user "${username}".`);
 }
 
 /**

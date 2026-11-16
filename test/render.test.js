@@ -6,7 +6,7 @@ const { render } = require('../src/render');
 const { replay } = require('../src/chess');
 const { demoGame } = require('../src/demo');
 const { parsePgn } = require('../src/pgn');
-const { firstGame, gameLink, normalizeLichess, openingFromEcoUrl, wantedVariants } = require('../src/sources');
+const { fetchGame, firstGame, gameLink, normalizeLichess, openingFromEcoUrl, wantedVariants } = require('../src/sources');
 
 test('renders the Opera Game ending in checkmate', () => {
   const svg = render(demoGame(), { palette: 'dark', perspective: 'Paul Morphy' });
@@ -475,4 +475,38 @@ test('the stopwatch rings until the losing side has finished sinking', () => {
   const lastSwing = Math.max(...swings);
   assert.ok(lastSwing < sunk && ((sunk - lastSwing) / 100) * D < 0.15, 'its last swing comes just before the side has sunk');
   assert.match(frames, new RegExp(`${String(sunk).replace('.', '\\.')}%\\{transform:translate\\(0px,0px\\)[^}]*rotate\\(0deg\\)[^}]*;opacity:1\\}`), 'and it comes to rest just as the side has sunk');
+});
+
+test("a player's latest game passes over games of one move or less", async (t) => {
+  const realFetch = globalThis.fetch;
+  t.after(() => { globalThis.fetch = realFetch; });
+  const players = { white: { user: { name: 'alice' } }, black: { user: { name: 'bob' } } };
+  const ndjson = (games) => games.map((g) => JSON.stringify(g)).join('\n') + '\n';
+
+  // Lichess lists the newest game first: an abort after 1. e4, a resignation after 1. e4 e5, then a real game.
+  const lichess = [
+    { id: 'aborted1', variant: 'standard', status: 'aborted', players, moves: 'e4' },
+    { id: 'resigns1', variant: 'standard', status: 'resign', winner: 'white', players, moves: 'e4 e5' },
+    { id: 'played01', variant: 'standard', status: 'resign', winner: 'white', players, moves: 'e4 e5 Nf3' },
+  ];
+  globalThis.fetch = async () => new Response(ndjson(lichess));
+  const game = await fetchGame({ platform: 'lichess', username: 'alice' });
+  assert.strictEqual(game.url, 'https://lichess.org/played01');
+  assert.deepStrictEqual(game.moves, ['e4', 'e5', 'Nf3'], 'three half-moves are enough');
+  globalThis.fetch = async () => new Response(ndjson(lichess.slice(0, 2)));
+  await assert.rejects(fetchGame({ platform: 'lichess', username: 'alice' }), /No recent standard or crazyhouse games longer than one move/);
+  globalThis.fetch = async () => new Response(JSON.stringify(lichess[0]));
+  assert.deepStrictEqual((await fetchGame({ platform: 'lichess', gameId: 'aborted1' })).moves, ['e4'], 'a game asked for by id is shown however short');
+
+  // Chess.com lists each month's games oldest first.
+  const played = (n, moves) => ({
+    url: `https://www.chess.com/game/live/${n}`, rules: 'chess', time_class: 'blitz', time_control: '180',
+    pgn: `[White "alice"]\n[Black "bob"]\n[Result "1-0"]\n\n${moves} 1-0`,
+    white: { username: 'alice', result: 'win' }, black: { username: 'bob', result: 'resigned' },
+  });
+  const month = { games: [played(1, '1. e4 e5 2. Nf3'), played(2, '1. e4 e5'), played(3, '1. e4')] };
+  globalThis.fetch = async (url) => new Response(JSON.stringify(/archives$/.test(url) ? { archives: ['https://api.chess.com/pub/player/alice/games/2026/11'] } : month));
+  assert.strictEqual((await fetchGame({ platform: 'chesscom', username: 'alice' })).url, 'https://www.chess.com/game/live/1');
+  month.games = month.games.slice(1);
+  await assert.rejects(fetchGame({ platform: 'chesscom', username: 'alice' }), /No recent standard games longer than one move/);
 });
