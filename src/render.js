@@ -36,6 +36,11 @@ const FLASH_STRENGTH = 0.42;           // how strongly the card flashes in the a
 const JOLT_PIXELS = 3;                 // how far the card jolts from side to side
 const CONFETTI_PIECES = 48;            // how many pieces of confetti fall when the player the card is for has won
 const CONFETTI_SECONDS = 1.7;          // how long a piece of confetti takes to fall past the card
+// The winning side's pieces bounce from just after the last move until the board clears. Set the height to 0 to leave it out.
+const BOUNCE_PIXELS = 8;               // how high each piece bounces
+const BOUNCE_SECONDS = 0.4;            // one bounce: up, down and a moment on the ground
+const BOUNCE_DELAY = 0.35;             // how long after the last move lands the first pieces start
+const BOUNCE_SPREAD = 0.3;             // each piece starts at a random moment within this many seconds of the first
 const INTRO_SPEED = 1.3;               // how many times faster than its original pace the opening sequence plays
 const INTRO_PACE = { rollFrom: 0.2, rollTo: 1.2, rodsGone: 1.45, vsOut: 2.05, doorsFrom: 2.2, doorsTo: 2.85, rain: 2.85, gameStarts: 3.65 };
 const INTRO = Object.fromEntries(Object.entries(INTRO_PACE).map(([step, seconds]) => [step, Number((seconds / INTRO_SPEED).toFixed(3))]));
@@ -218,6 +223,10 @@ function render(game, options = {}) {
   const FADE = 0.75;
   const resetAt = holdEnd + FADE + 0.05;   // everything goes back to how the game started, ready for the next replay
   const D = holdEnd + FADE + 0.4;
+  // At the end the board clears in eight waves, each a scattered handful of squares. `i` counts
+  // the squares as drawn, from the top left, row by row.
+  const clearWave = (i) => Math.floor(((i * 37 + 11) % 64) / 8);
+  const clearsAt = (wave) => holdEnd + 0.05 + wave * 0.085;
   const pct = (sec) => num(Math.min(100, Math.max(0, (sec / D) * 100)));
   const dur = `${num(D)}s`;
   const loop = (name, timing) => `animation:${name} ${dur} ${timing} ${INTRO.gameStarts}s infinite backwards`;
@@ -398,11 +407,42 @@ function render(game, options = {}) {
     }
     return king;
   };
+  // The winning side's pieces celebrate: each one starts bouncing at its own random moment
+  // (seeded by the game, so its card never changes) and keeps going until the board clears
+  // under it. It leaves as soon as its square, or the square above that it bounces up into,
+  // has cleared, so no part of it is left hanging over an empty square.
+  const winningSide = loser === 'b' ? 'w' : loser === 'w' ? 'b' : null;
+  const bounceStart = uniformSampler(`${game.moves.join(' ')} jump`);
+  const bounce = (tr, sprite) => {
+    if (BOUNCE_PIXELS <= 0 || tr.color !== winningSide || tr.vanish !== null) return sprite;
+    const [col, row] = [sqX(tr.last) / S, sqY(tr.last) / S];
+    const leaves = Math.min(clearsAt(clearWave(row * 8 + col)), row > 0 ? clearsAt(clearWave((row - 1) * 8 + col)) : Infinity);
+    // Every moment on the ground shares one keyframe rule and every moment in the air another,
+    // so a whole celebration costs a piece only a few hundred characters.
+    const [ground, air] = [[0, resetAt - 0.01, resetAt], []];
+    const keep = (list, sec) => { if (sec < resetAt - 0.02) list.push(sec); };
+    for (let t = lastT + BOUNCE_DELAY + bounceStart() * BOUNCE_SPREAD; t < leaves; t += BOUNCE_SECONDS) {
+      keep(ground, t);
+      keep(air, t + BOUNCE_SECONDS * 0.425);
+      keep(ground, t + BOUNCE_SECONDS * 0.85);
+    }
+    if (!air.length) return sprite;
+    const at = (list) => [...new Set(list.map(pct))].map((p) => `${p}%`).join(',');
+    const name = `bo${tr.id}`;
+    css.push(
+      `@keyframes ${name}{${at(ground)},100%{transform:translateY(0px);animation-timing-function:ease-out}` +
+        `${at(air)}{transform:translateY(${-BOUNCE_PIXELS}px);animation-timing-function:ease-in}` +
+        `0%{opacity:1}${pct(leaves - 0.005)}%{opacity:1}${pct(leaves)}%,${pct(resetAt - 0.01)}%{opacity:0}${pct(resetAt)}%{opacity:1}}` +
+        `.${name}{${loop(name, 'linear')}}`
+    );
+    return `<g class="${name}">${sprite}</g>`;
+  };
 
   const pieceEls = [];
   for (const tr of tracks.values()) {
     // A browser re-evaluates every running animation on every frame, even while nothing moves,
-    // so a piece is only animated in the ways it needs: one that stays put all game gets none.
+    // so a piece is only animated in the ways it needs: one that stays put all game gets no track
+    // of its own (though on the winning side it still bounces at the end).
     const travels = tr.drop || tr.moves.length > 0;
     const fades = tr.appear !== null || tr.vanish !== null;
     // In crazyhouse a promoted piece turns back into a pawn when captured, so it carries a
@@ -413,7 +453,7 @@ function render(game, options = {}) {
     const sprite = `<use${rain} href="#${tr.type}${tr.color}" x="${SPRITE_DX}" y="${SPRITE_DY}"/>`;
     const piece =
       `transform="translate(${sqX(tr.last)} ${sqY(tr.last)})"${tr.vanish === null ? '' : ' opacity="0"'}>` +
-      `${tr.type === 'k' && tr.color === loser ? kingEnding(sprite) : sprite}${badge}</g>`;
+      `${tr.type === 'k' && tr.color === loser ? kingEnding(sprite) : bounce(tr, sprite)}${badge}</g>`;
     if (!travels && !fades) {
       pieceEls.push(`<g ${piece}`);
       continue;
@@ -650,10 +690,10 @@ function render(game, options = {}) {
   for (let g = 0; g < 8; g++) {
     let rects = '';
     for (let i = 0; i < 64; i++) {
-      if (Math.floor(((i * 37 + 11) % 64) / 8) !== g) continue;
+      if (clearWave(i) !== g) continue;
       rects += `<rect x="${(i % 8) * S - 1}" y="${Math.floor(i / 8) * S - 1}" width="${S + 2}" height="${S + 2}"/>`;
     }
-    css.push(`@keyframes dg${g}{0%{opacity:0}${pct(holdEnd + 0.05 + g * 0.085)}%,100%{opacity:1}}.dg${g}{${loop(`dg${g}`, 'steps(1,end)')}}`);
+    css.push(`@keyframes dg${g}{0%{opacity:0}${pct(clearsAt(g))}%,100%{opacity:1}}.dg${g}{${loop(`dg${g}`, 'steps(1,end)')}}`);
     outro += `<g class="dg${g}" fill="${pal.bg}" opacity="0">${rects}</g>`;
   }
   let stairs = '';

@@ -143,7 +143,7 @@ test('the Lichess download stops at the first usable game', async () => {
 test('only pieces that move or change are animated, and the move text is one animation', () => {
   const svg = render(demoGame());
   const animated = svg.match(/<g class="p\d+"/g).length;
-  const still = svg.match(/<g transform="translate\(\d+ \d+\)">(?:<g class="ke"[^>]*>)?<use class="rn"/g).length;
+  const still = svg.match(/<g transform="translate\(\d+ \d+\)">(?:<g class="(?:ke|bo\d+)"[^>]*>)?<use class="rn"/g).length;
   assert.strictEqual(animated + still, 32, 'every piece is drawn');
   assert.ok(still >= 8, 'pieces that never move have no animation');
   assert.strictEqual(svg.match(/class="mv"/g).length, 1, 'one scrolling strip shows the current move');
@@ -197,7 +197,7 @@ test('the card opens with scrolls, a versus card and falling pieces, once', () =
   assert.strictEqual(svg.match(/<g class="r[lr]" opacity="0">/g).length, 2);
   assert.match(svg, /<g class="vt" opacity="0">.*?>Duke Karl \/ Count Iso…<\/text><\/g><g class="vb" opacity="0">.*?>Paul Morphy<\/text><\/g><text class="vv a"[^>]*>VS<\/text>/);
   assert.strictEqual(svg.match(/<use class="rn" style="animation-delay:[\d.]+s"/g).length, 32);
-  assert.match(svg, /<g transform="translate\(0 192\)"><use class="rn" style="animation-delay:2\.261s" href="#pw"/);
+  assert.match(svg, /<g transform="translate\(0 192\)"><g class="bo\d+"><use class="rn" style="animation-delay:2\.261s" href="#pw"/);
   assert.match(svg, /<g transform="translate\(224 0\)"><use class="rn" style="animation-delay:2\.838s" href="#rb"/);
   for (const name of ['sl', 'sr', 'rl', 'rr', 'vt', 'vb', 'vv']) assert.match(svg, new RegExp(`\\.${name}\\{animation:${name} [\\d.]+s [a-z-]+ forwards\\}`));
   assert.match(svg, /\.rn\{animation:rn 0\.323s ease-in backwards\}/);
@@ -360,4 +360,31 @@ test("the intro's two wooden rollers mirror each other, with their light strips 
   assert.strictEqual(strip('rl'), '-3', 'left roller: strip just left of its centre');
   assert.strictEqual(strip('rr'), '1', 'right roller: strip just right of its centre');
   assert.strictEqual(Number(strip('rl')) + 2, -Number(strip('rr')), 'the strips are mirror images about each roller\'s centre');
+});
+
+test('the winning side bounces from just after the last move until the board clears under each piece', () => {
+  const svg = render(demoGame(), { perspective: 'Paul Morphy' });
+  assert.strictEqual(render(demoGame(), { perspective: 'Paul Morphy' }), svg, 'the same game always bounces the same way');
+  const wrapped = [...svg.matchAll(/<g class="bo\d+"><use[^>]*href="#[a-z]([wb])"/g)];
+  assert.strictEqual(wrapped.length, 10, "white's ten pieces left on the board bounce");
+  assert.ok(wrapped.every((m) => m[1] === 'w'), 'only the winning side bounces');
+  const bouncers = [...svg.matchAll(/@keyframes (bo\d+)\{(.*?)\}\}\.\1\{animation:\1 ([\d.]+)s linear/g)];
+  assert.strictEqual(bouncers.length, 10);
+  const starts = new Set();
+  for (const [, name, frames, seconds] of bouncers) {
+    const ground = frames.match(/^([\d.,%]+)\{transform:translateY\(0px\)/)[1].split(',').map(parseFloat);
+    const air = frames.match(/([\d.,%]+)\{transform:translateY\(-8px\)/)[1].split(',').map(parseFloat);
+    const leaves = parseFloat(frames.match(/([\d.]+)%,[\d.]+%\{opacity:0\}/)[1]);
+    starts.add(Math.min(...ground.filter((p) => p > 0)));
+    assert.ok(air.length >= 7, `${name} keeps bouncing through the end of the replay`);
+    assert.ok(((leaves - Math.max(...air.filter((p) => p <= leaves))) / 100) * Number(seconds) < 0.4, `${name} is still bouncing when its square clears`);
+  }
+  assert.ok(starts.size > 1, 'each piece starts bouncing at its own moment');
+
+  assert.strictEqual(render(demoGame(), { perspective: 'Duke Karl / Count Isouard' }).match(/<g class="bo\d+">/g).length, 10, 'the winner bounces on the loser\'s card too');
+  const foolsMate = render({ ...demoGame(), moves: ['f3', 'e5', 'g4', 'Qh4#'], result: '0-1', termination: 'mate' });
+  const black = [...foolsMate.matchAll(/<g class="bo\d+"><use[^>]*href="#[a-z]([wb])"/g)];
+  assert.strictEqual(black.length, 16);
+  assert.ok(black.every((m) => m[1] === 'b'));
+  assert.doesNotMatch(render({ ...demoGame(), moves: ['e4', 'e5'], result: '1/2-1/2', termination: 'draw' }), /class="bo\d+"/, 'no one bounces after a draw');
 });
