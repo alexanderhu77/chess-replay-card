@@ -31,9 +31,11 @@ const LONGEST_QUIET_MOVE_SECONDS = 0.7;    // the most time a quiet move can get
 const CLOSING_MOVE_SECONDS = 1.1;          // average time for each of the last two moves, varied and capped like the first kind
 const SHORTEST_MOVE_SECONDS = 0.38;        // no move of any kind gets less time than this (a piece needs about this long to finish sliding)
 const THINKING_TIME_CONTRAST = 1.5;        // how sharply the curve tells quick moves from slow ones: lower spreads the times more evenly
-// What the whole card does as the last move lands. Set any of the first three to 0 to leave it out.
+// What the whole card does as the last move lands. Set FLASH_STRENGTH, JOLT_PIXELS or
+// CONFETTI_PIECES to 0 to leave that effect out.
 const FLASH_STRENGTH = 0.42;           // how strongly the card flashes in the accent colour, from 0 to 1
-const JOLT_PIXELS = 3;                 // how far the card jolts from side to side
+const JOLT_PIXELS = 10;                // how far the card can be thrown by the first jolt of its earthquake
+const JOLT_SECONDS = 0.84;             // how long the earthquake takes to die away
 const CONFETTI_PIECES = 48;            // how many pieces of confetti fall when the player the card is for has won
 const CONFETTI_SECONDS = 1.7;          // how long a piece of confetti takes to fall past the card
 // The winning side's pieces bounce from just after the last move until the board clears. Set the height to 0 to leave it out.
@@ -818,10 +820,18 @@ function render(game, options = {}) {
     effects += `<rect class="wf" width="${width}" height="${height}" fill="${pal.accent}" opacity="0"/>`;
   }
   if (jolts) {
-    // Seconds after the hit, then how far across and down, in thirds of the full jolt.
-    const path = [[0.04, -3, 1], [0.08, 3, -1], [0.12, -2, -1], [0.16, 2, 1], [0.2, -1, 0], [0.26, 0, 0]];
-    const frames = path.map(([seconds, x, y]) => `${pct(hit + seconds)}%{transform:translate(${num((x * JOLT_PIXELS) / 3)}px,${num((y * JOLT_PIXELS) / 3)}px)}`);
-    css.push(`@keyframes wk{0%,${pct(hit)}%{transform:translate(0px,0px)}${frames.join('')}100%{transform:translate(0px,0px)}}.wk{${loop('wk', 'linear')}}`);
+    // An earthquake: every 0.04 s the card is thrown to a new spot in a random direction, each
+    // a little nearer than the last (and never as far up or down as across), until it comes to
+    // rest. The directions are seeded by the game, so its card always shakes the same way.
+    const quake = uniformSampler(`${game.moves.join(' ')} jolt`);
+    const jumps = Math.round(JOLT_SECONDS / 0.04) - 1;
+    const at = (x, y) => `transform:translate(${num(x)}px,${num(y)}px)`;
+    const frames = [];
+    for (let k = 1; k <= jumps; k++) {
+      const reach = JOLT_PIXELS * (1 - k / (jumps + 1));
+      frames.push(`${pct(hit + k * 0.04)}%{${at(reach * (quake() * 2 - 1), reach * 0.6 * (quake() * 2 - 1))}}`);
+    }
+    css.push(`@keyframes wk{0%,${pct(hit)}%{${at(0, 0)}}${frames.join('')}${pct(hit + JOLT_SECONDS)}%,100%{${at(0, 0)}}}.wk{${loop('wk', 'linear')}}`);
   }
   if (CONFETTI_PIECES > 0 && victor && victor.name.toLowerCase() === me) {
     // The pieces wait above the card and fall past it in a few waves, one animation per wave.

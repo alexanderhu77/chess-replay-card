@@ -318,7 +318,19 @@ test('the card flashes and jolts as the game ends, with confetti only when the f
   assert.match(won, /@keyframes wf\{0%,[\d.]+%\{opacity:0\}[\d.]+%\{opacity:0\.42\}[\d.]+%,100%\{opacity:0\}\}/);
   // Everything but the background jolts, and comes to rest exactly where it started.
   assert.match(won, /<\/style><rect width="566" height="288" fill="#ffffff"\/><g class="wk"><defs>/);
-  assert.match(won, /@keyframes wk\{0%,[\d.]+%\{transform:translate\(0px,0px\)\}[\d.]+%\{transform:translate\(-3px,1px\)\}.*?%\{transform:translate\(0px,0px\)\}100%\{transform:translate\(0px,0px\)\}\}/);
+  // An earthquake: twenty jumps 0.04 s apart, each held within a shrinking reach, then rest.
+  const quake = won.match(/@keyframes wk\{0%,([\d.]+)%\{transform:translate\(0px,0px\)\}(.*?)([\d.]+)%,100%\{transform:translate\(0px,0px\)\}\}\.wk\{animation:wk ([\d.]+)s/);
+  assert.ok(quake, 'the card starts and ends every replay at rest');
+  const [start, end, D] = [Number(quake[1]), Number(quake[3]), Number(quake[4])];
+  assert.ok(Math.abs(((end - start) / 100) * D - 0.84) < 0.01, 'it dies away 0.84 s after the hit');
+  const jumps = [...quake[2].matchAll(/\{transform:translate\((-?[\d.]+)px,(-?[\d.]+)px\)\}/g)].map((m) => [Number(m[1]), Number(m[2])]);
+  assert.strictEqual(jumps.length, 20);
+  jumps.forEach(([x, y], i) => {
+    const reach = 10 * (1 - (i + 1) / 21);
+    assert.ok(Math.abs(x) <= reach + 1e-9 && Math.abs(y) <= reach * 0.6 + 1e-9, `jump ${i + 1} stays within its reach`);
+  });
+  assert.ok(Math.max(...jumps.slice(0, 4).map(([x, y]) => Math.hypot(x, y))) > 4, 'the first jumps are big');
+  assert.notStrictEqual(render({ ...demoGame(), moves: ['e4', 'e5', 'Qh5', 'Nc6', 'Bc4', 'Nf6', 'Qxf7#'] }).match(/@keyframes wk\{.*?\}\}/)[0], won.match(/@keyframes wk\{.*?\}\}/)[0], 'each game shakes its own way');
   const waves = won.match(/<g class="wc\d" opacity="0">(?:<rect [^>]*\/>){8}<\/g>/g);
   assert.strictEqual(waves.length, 6, '48 pieces of confetti in six waves');
   assert.match(won, /(?:<g class="wc\d" opacity="0">.*?<\/g>){6}<\/svg>$/, 'confetti is drawn over everything else');
